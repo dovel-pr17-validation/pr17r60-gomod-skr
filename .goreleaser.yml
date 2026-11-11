@@ -1,0 +1,38 @@
+version: 2
+project_name: skr
+builds:
+  - main: ./cmd/skr
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/sacloud/skr/version.Version={{.Version}} -X github.com/sacloud/skr/version.Revision={{.ShortCommit}}
+    goos:
+      - windows
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - '386'
+      - arm
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: '386'
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+      - goos: windows
+        goarch: arm64
+    binary: skr
+archives:
+  - formats: [zip]
+    name_template: '{{ .ProjectName }}_{{ .Os }}-{{ .Arch }}'
+changelog:
+  filters:
+    exclude:
+      - '^docs:'
+checksum:
+  name_template: '{{ .ProjectName }}_SHA256SUMS'
+release:
+  prerelease: auto

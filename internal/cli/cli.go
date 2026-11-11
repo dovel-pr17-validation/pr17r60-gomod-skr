@@ -1,0 +1,184 @@
+// Copyright 2022-2026 The sacloud/skr Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package cli
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/alecthomas/kong"
+	"github.com/sacloud/sacloud-sdk-go/common/saclient"
+	"github.com/sacloud/skr/internal/apprunapi"
+	"github.com/sacloud/skr/internal/apprundedicatedapi"
+	"github.com/sacloud/skr/internal/containerregistryapi"
+	"github.com/sacloud/skr/internal/eventbusapi"
+	"github.com/sacloud/skr/internal/gslbapi"
+	"github.com/sacloud/skr/internal/iamapi"
+	"github.com/sacloud/skr/internal/kmsapi"
+	"github.com/sacloud/skr/internal/networkingsuiteapi"
+	"github.com/sacloud/skr/internal/objectstorageapi"
+	"github.com/sacloud/skr/internal/proxylbapi"
+	"github.com/sacloud/skr/internal/secretmanagerapi"
+	"github.com/sacloud/skr/internal/securitycontrolapi"
+	"github.com/sacloud/skr/internal/serviceendpointgatewayapi"
+	"github.com/sacloud/skr/internal/simplemqapi"
+	"github.com/sacloud/skr/internal/simplenotificationapi"
+	"github.com/sacloud/skr/version"
+)
+
+type cli struct {
+	Trace                     bool                               `name:"trace" help:"SDK の HTTP リクエストとレスポンスをトレースします。認証情報などが出力される場合があります。"`
+	Version                   kong.VersionFlag                   `name:"version" help:"Print version information and quit."`
+	Query                     *string                            `name:"query" help:"jq 式で API の JSON 出力を加工します。例: --query 'map({ID,Name})'"`
+	VersionCmd                versionCommand                     `cmd:"" name:"version" help:"Print version information."`
+	Config                    configCommand                      `cmd:"" help:"Manage configuration profiles."`
+	IaaSAPI                   iaasAPICommand                     `cmd:"" name:"iaas-api" help:"さくらのクラウド IaaS API を操作します。SDK のプロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。結果は JSON で出力します。--query で必要な項目を抽出できます。"`
+	GSLBAPI                   gslbapi.Commands                   `cmd:"" name:"gslb-api" help:"さくらのクラウド GSLB を操作します。実サーバーへのヘルスチェックを行い、DNS 応答先を制御します。SDK のプロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。結果は JSON で出力します。詳細: https://manual.sakura.ad.jp/cloud/appliance/gslb/index.html"`
+	ProxyLBAPI                proxylbapi.Commands                `cmd:"" name:"proxylb-api" help:"さくらのクラウド エンハンスドロードバランサ (ProxyLB) を操作します。複数の配下サーバーへのロードバランス、HTTPS 対応、ソーリーサーバーなどを設定できます。エンハンスドロードバランサはグローバルリソースで、ゾーンの指定は不要です。SDK のプロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/appliance/enhanced-lb/index.html"`
+	EventbusAPI               eventbusapi.Commands               `cmd:"" name:"eventbus-api" help:"スケジュールまたはイベント検知をきっかけにジョブを実行する EventBus を操作します。CommonServiceItem 操作は --provider-class で種別 (eventbusprocessconfiguration、eventbusschedule、eventbustrigger) を指定します。実行先を eventbusprocessconfiguration で定義し、スケジュールまたはトリガーから参照します。認証には SDK のプロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数を使用します。結果は JSON で出力します。--query で必要な項目を抽出できます。ジョブ実行はベストエフォート型で、厳密なリアルタイム性は保証されません。詳細: https://manual.sakura.ad.jp/cloud/appliance/eventbus/about.html"`
+	SimpleMQAPI               simplemqapi.Commands               `cmd:"" name:"simplemq-api" help:"SimpleMQ のキュー管理 API とメッセージ API を操作します。キュー管理 API は SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。メッセージ API はキューの API キーを --api-key-file から読み込みます。結果は JSON で出力します。--query で必要な項目を抽出できます。"`
+	SimpleNotificationAPI     simplenotificationapi.Commands     `cmd:"" name:"simple-notification-api" help:"さくらのクラウド シンプル通知の通知先、通知先グループ、ルーティング設定、通知履歴を操作します。グループへの通知送信は実際の通知を発生させます。通知の到達は保証されず、結果は通知履歴でも確認してください。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/appliance/simplenotification/about.html"`
+	NetworkingSuiteAPI        networkingsuiteapi.Commands        `cmd:"" name:"networking-suite-api" help:"ネットワークスイートのサブネットグループ、サブネット、サーバ NIC 接続、IP アドレスを操作します。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。API エンドポイントは SDK の既定値を使います。対象ゾーンに合わせる場合は SAKURA_ENDPOINTS_NETWORKING_SUITE を設定してください。Create/Update はフラグまたは --request JSON で入力します。SRN はリソース一覧や参照結果から取得します。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/network/networking-suite/index.html"`
+	AppRunDedicatedAPI        apprundedicatedapi.Commands        `cmd:"" name:"apprun-dedicated-api" help:"専用ワーカノード上でコンテナを実行する AppRun 専有型のクラスタ、アプリケーションなどを操作します。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/apprun-dedicated/about.html"`
+	AppRunAPI                 apprunapi.Commands                 `cmd:"" name:"apprun-api" help:"AppRun 共用型のアプリケーション、バージョン、トラフィック分散などを操作します。アプリケーションはコンテナイメージからデプロイされ、負荷に応じてスケーリングします。料金は実行リソース、スケール数、時間に応じて発生します。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。認証情報を含む作成・更新リクエストは保護したファイルまたは標準入力から読み込みます。結果は JSON で出力します。詳細: https://manual.sakura.ad.jp/cloud/apprun/about.html"`
+	ContainerRegistryAPI      containerregistryapi.Commands      `cmd:"" name:"container-registry-api" help:"さくらのクラウドのコンテナレジストリと認証ユーザーを管理します。2026年6月25日以降の新規レジストリは非公開です。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。ユーザーのパスワードは保護されたファイルまたは標準入力から読み込みます。結果は JSON で出力します。詳細: https://manual.sakura.ad.jp/cloud/appliance/container-registry/index.html"`
+	ObjectStorageAPI          objectstorageapi.Commands          `cmd:"" name:"object-storage-api" help:"さくらのオブジェクトストレージ管理 API でサイト、バケット、サイトアカウント、パーミッションを操作します。S3 互換 API のオブジェクト本体の転送ではなく、管理操作を行います。認証には SDK のプロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数を使用します。バケット作成は課金対象です。アクセスキーのシークレットは発行時の応答にのみ含まれます。結果は JSON で出力します。詳細: https://manual.sakura.ad.jp/cloud/objectstorage/api.html"`
+	IAMAPI                    iamapi.Commands                    `cmd:"" name:"iam-api" help:"さくらのクラウド IAM のユーザー、グループ、組織、プロジェクト、フォルダ、ポリシーなどを操作します。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。各機能を利用するには、対象機能の権限を付与したサービスプリンシパルが必要です。詳細: https://manual.sakura.ad.jp/cloud/controlpanel/iam-policy.html"`
+	KmsAPI                    kmsapi.Commands                    `cmd:"" name:"kms-api" help:"さくらのクラウド KMS (Key Management Service) で暗号鍵を操作します。FIPS 140-3 level 3 認証の HSM と連携し、対称鍵 AES-256 bit の暗号化・復号を提供します。キーの削除は猶予期間 7〜90 日の削除予約制です。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。API エンドポイントのゾーンは SDK の既定値 (tk1a) を使い、SAKURA_ENDPOINTS_KMS で変更できます。平文や暗号文、BYOK の秘密鍵はファイルまたは標準入力から読み込みます。結果は JSON で出力しますが、decrypt-data-with-key の平文はバイト列のまま出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/appliance/kms/index.html"`
+	SecretManagerAPI          secretmanagerapi.Commands          `cmd:"" name:"secretmanager-api" help:"さくらのクラウド シークレットマネージャーでシークレット保管庫 (Vault) とシークレットを操作します。シークレットは Vault 単位で暗号化され、最新を含む 50 世代まで保管されます。Vault 作成には既存の KMS キー ID が必要です。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。シークレットの値は --value-file で指定したファイルまたは標準入力から読み込み、unveil は値をそのまま標準出力へ出力します。結果は JSON で出力しますが、unveil は値のみを出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/appliance/secretsmanager/index.html"`
+	ServiceEndpointGatewayAPI serviceendpointgatewayapi.Commands `cmd:"" name:"service-endpoint-gateway-api" help:"さくらのクラウドのサービスエンドポイントゲートウェイを操作します。サービスエンドポイントゲートウェイはスイッチの拡張機能で、プライベートネットワーク内からオブジェクトストレージやコンテナレジストリなどのマネージドサービスへ閉域接続します。スイッチ単体が対象で、ルータ＋スイッチでは利用できません。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。Create はフラグまたは --request JSON で入力します。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/network/switch/seg.html"`
+	SecurityControlAPI        securitycontrolapi.Commands        `cmd:"" name:"security-control-api" help:"さくらのクラウドのセキュリティコントロールを操作します。有効化状態 (activation)、評価ルールの設定 (evaluation-rule)、自動アクション (automated-action) を管理します。評価ルールはプロジェクトのリソース設定を検査し、自動アクションは評価結果をきっかけに通知やワークフローを実行します。SDK プロファイル、または SAKURA_ACCESS_TOKEN / SAKURA_ACCESS_TOKEN_SECRET 環境変数で認証します。API エンドポイントは SDK の既定値を使い、SAKURA_ENDPOINTS_SECURITY_CONTROL で変更できます。結果は JSON で出力します。--query で必要な項目を抽出できます。詳細: https://manual.sakura.ad.jp/cloud/controlpanel/eventlog/security-control.html"`
+	HTTP                      httpCommand                        `cmd:"" name:"http" help:"SDK の認証情報を使って HTTPS URL に直接リクエストを送ります。指定したホストへアカウントの認証情報が送信されるため、信頼できる API エンドポイントだけを指定してください。レスポンス本文は形式を変えずに出力し、--query による加工は行いません。例: skr http 'https://api.example.test/path' --method GET"`
+}
+
+type configCommand struct {
+	Current currentCommand `cmd:"" help:"Print the current profile name."`
+	List    listCommand    `cmd:"" help:"List configuration profiles."`
+	Show    showCommand    `cmd:"" help:"Show a configuration profile."`
+	Create  createCommand  `cmd:"" help:"コントロールパネルで作成したサービスプリンシパルキーを含む profile を新規作成します。"`
+	Edit    editCommand    `cmd:"" help:"既存 profile のサービスプリンシパルキー認証情報を編集します。"`
+	Use     useCommand     `cmd:"" help:"Set the current configuration profile."`
+}
+
+type versionCommand struct{}
+
+func (versionCommand) Run(ctx *kong.Context) error {
+	_, err := fmt.Fprintln(ctx.Stdout, version.FullVersion())
+	return err
+}
+
+type currentCommand struct{}
+
+func (currentCommand) Run(ctx *kong.Context) error {
+	profileOp, err := saclient.NewProfileOp(os.Environ())
+	if err != nil {
+		return err
+	}
+
+	name, err := profileOp.GetCurrentName()
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintln(ctx.Stdout, name)
+	return err
+}
+
+func Run(args []string, stdout, stderr io.Writer) int {
+	return runCLI(args, stdout, stderr, newCLI())
+}
+
+func run(args []string, stdout, stderr io.Writer) int {
+	return Run(args, stdout, stderr)
+}
+
+func newCLI() *cli {
+	result := &cli{}
+	result.initIaaSAPI()
+	result.initGSLBAPI()
+	result.initProxyLBAPI()
+	result.initEventbusAPI()
+	result.initSimpleMQAPI()
+	result.initSimpleNotificationAPI()
+	result.initNetworkingSuiteAPI()
+	result.initAppRunDedicatedAPI()
+	result.initAppRunAPI()
+	result.initContainerRegistryAPI()
+	result.initObjectStorageAPI()
+	result.initIAMAPI()
+	result.initKmsAPI()
+	result.initSecretManagerAPI()
+	result.initSecurityControlAPI()
+	result.initServiceEndpointGatewayAPI()
+	result.initSimpleMQMessage()
+	result.initHTTP()
+	return result
+}
+
+func runCLI(args []string, stdout, stderr io.Writer, commandLine *cli) int {
+	exitCode := -1
+	parser, err := kong.New(
+		commandLine,
+		kong.Name("skr"),
+		kong.Description("CLI for Sakura Cloud."),
+		kong.Writers(stdout, stderr),
+		kong.Exit(func(code int) { exitCode = code }),
+		kong.Vars{"version": version.FullVersion()},
+	)
+	if err != nil {
+		if _, writeErr := fmt.Fprintln(stderr, err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+
+	if len(args) == 0 {
+		args = []string{"--help"}
+	}
+
+	ctx, err := parser.Parse(args)
+	if shouldShowCommandHelp(args, err) {
+		ctx, err = parser.Parse(append(args, "--help"))
+	}
+	if exitCode >= 0 {
+		return exitCode
+	}
+	if err == nil {
+		err = ctx.Run()
+	}
+	if err != nil {
+		if _, writeErr := fmt.Fprintln(stderr, err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	return 0
+}
+
+func shouldShowCommandHelp(args []string, err error) bool {
+	if len(args) == 0 || err == nil || args[len(args)-1] == "" {
+		return false
+	}
+
+	var parseErr *kong.ParseError
+	if !errors.As(err, &parseErr) || parseErr.Context == nil {
+		return false
+	}
+
+	selected := parseErr.Context.Selected()
+	return selected != nil && len(selected.Children) > 0 && args[len(args)-1] == selected.Name
+}

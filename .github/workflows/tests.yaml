@@ -1,0 +1,75 @@
+name: Tests
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+env:
+  GOPROXY: https://proxy.golang.org
+jobs:
+  lint-text:
+    name: lint-text
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: make lint-text
+        run:  |
+          make lint-text
+
+  lint-go:
+    name: lint-go
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Unshallow
+        run: git fetch --prune --unshallow
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Setup tools
+        run: | 
+          make tools
+
+      - name: make lint-go
+        run:  |
+          # Explicitly set GOROOT to avoid golangci-lint/issues/3107
+          GOROOT=$(go env GOROOT)
+          export GOROOT
+          make lint-go
+
+      - name: make vulncheck
+        run:  |
+          make vulncheck
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Unshallow
+        run: git fetch --prune --unshallow
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: make test
+        run: |
+          make test
+
+      - name: make docs-site
+        run: |
+          make docs-site

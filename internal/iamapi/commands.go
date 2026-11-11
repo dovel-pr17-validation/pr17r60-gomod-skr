@@ -1,0 +1,602 @@
+// Copyright 2022-2026 The sacloud/skr Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package iamapi
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+
+	"github.com/alecthomas/kong"
+	"github.com/sacloud/sacloud-sdk-go/api/iam"
+	"github.com/sacloud/sacloud-sdk-go/api/iam/apis/group"
+	"github.com/sacloud/sacloud-sdk-go/api/iam/apis/organization"
+	"github.com/sacloud/sacloud-sdk-go/api/iam/apis/projectapikey"
+	"github.com/sacloud/sacloud-sdk-go/api/iam/apis/user"
+	v1 "github.com/sacloud/sacloud-sdk-go/api/iam/apis/v1"
+	clientconfig "github.com/sacloud/skr/internal/saclient"
+)
+
+type Commands struct {
+	// operationId 派生名への移行 (ADR 0074) に合わせ、グループ階層を Kong の embed で
+	// 展開して 1 階層のフラット構造にしています。
+	User             UserCommands             `embed:""`
+	Group            GroupCommands            `embed:""`
+	Policy           PolicyCommands           `embed:""`
+	Auth             AuthCommands             `embed:""`
+	Folder           FolderCommands           `embed:""`
+	IAMRole          IAMRoleCommands          `embed:"" name:"iam-role"`
+	IDPolicy         IDPolicyCommands         `embed:"" name:"id-policy"`
+	IDRole           IDRoleCommands           `embed:"" name:"id-role"`
+	Organization     OrganizationCommands     `embed:""`
+	Project          ProjectCommands          `embed:""`
+	ProjectAPIKey    ProjectAPIKeyCommands    `embed:"" name:"project-api-key"`
+	SCIM             ScimCommands             `embed:""`
+	ServicePolicy    ServicePolicyCommands    `embed:"" name:"service-policy"`
+	ServicePrincipal ServicePrincipalCommands `embed:"" name:"service-principal"`
+	SSO              SSOCommands              `embed:""`
+	User2FA          User2FACommands          `embed:"" name:"user-2fa"`
+}
+
+type UserListCommand struct {
+	Page     *int    `name:"page" help:"任意: 取得するページ番号（1 開始）。"`
+	PerPage  *int    `name:"per-page" help:"任意: 1 ページあたりの取得件数。"`
+	Ordering *string `name:"ordering" help:"任意: 並び順。code または -code を指定します。"`
+	factory  UserAPIFactory
+	runtime  UserRuntime
+}
+
+func (c *UserListCommand) Run(ctx *kong.Context) error {
+	if err := c.runtime.validateOutput(ctx); err != nil {
+		return err
+	}
+	params := user.ListParams{Page: c.Page, PerPage: c.PerPage}
+	if c.Ordering != nil {
+		ordering := v1.ListUsersOrdering(*c.Ordering)
+		params.Ordering = &ordering
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	items, err := op.List(context.Background(), params)
+	if err != nil {
+		return err
+	}
+	return c.runtime.writeOutput(ctx, items)
+}
+
+type UserCreateCommand struct {
+	Name         *string `name:"name" help:"必須: ユーザー名。"`
+	Code         *string `name:"code" help:"必須: ユーザーコード。"`
+	Description  *string `name:"description" help:"必須: ユーザーの説明。空文字列も指定できます。"`
+	Email        *string `name:"email" help:"任意: SSO プロファイル有効時に外部 IdP のログインで利用するメールアドレス。ユーザーの通知用メールアドレスは register-email で登録します。"`
+	PasswordFile string  `name:"password-file" help:"必須: パスワードを記載したファイル。- の場合は標準入力から読み込みます。パスワードは英数字と ASCII 記号のみで、英字と数字を必ず含めます。組織のパスワードポリシーに従います。"`
+	factory      UserAPIFactory
+	runtime      UserRuntime
+}
+
+func (c *UserCreateCommand) Run(ctx *kong.Context) error {
+	if err := c.runtime.validateOutput(ctx); err != nil {
+		return err
+	}
+	if c.Name == nil || *c.Name == "" {
+		return fmt.Errorf("--name が必要です")
+	}
+	if c.Code == nil || *c.Code == "" {
+		return fmt.Errorf("--code が必要です")
+	}
+	if c.Description == nil {
+		return fmt.Errorf("--description が必要です（空文字列は --description '' と指定します）")
+	}
+	password, err := readPassword(c.PasswordFile)
+	if err != nil {
+		return err
+	}
+	params := user.CreateParams{
+		Name:        *c.Name,
+		Password:    password,
+		Code:        *c.Code,
+		Description: *c.Description,
+		Email:       c.Email,
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	created, err := op.Create(context.Background(), params)
+	if err != nil {
+		return err
+	}
+	return c.runtime.writeOutput(ctx, created)
+}
+
+type UserUpdateCommand struct {
+	ID           int     `arg:"" help:"更新するユーザー ID。"`
+	Name         *string `name:"name" help:"必須: ユーザー名。"`
+	Description  *string `name:"description" help:"必須: ユーザーの説明。空文字列も指定できます。"`
+	PasswordFile *string `name:"password-file" help:"任意: 変更後のパスワードを記載したファイル。- の場合は標準入力から読み込みます。未指定のときはパスワードを変更しません。"`
+	factory      UserAPIFactory
+	runtime      UserRuntime
+}
+
+func (c *UserUpdateCommand) Run(ctx *kong.Context) error {
+	if err := c.runtime.validateOutput(ctx); err != nil {
+		return err
+	}
+	if c.Name == nil || *c.Name == "" {
+		return fmt.Errorf("--name が必要です")
+	}
+	if c.Description == nil {
+		return fmt.Errorf("--description が必要です（空文字列は --description '' と指定します）")
+	}
+	params := user.UpdateParams{Name: *c.Name, Description: *c.Description}
+	if c.PasswordFile != nil {
+		password, err := readPassword(*c.PasswordFile)
+		if err != nil {
+			return err
+		}
+		params.Password = &password
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	updated, err := op.Update(context.Background(), c.ID, params)
+	if err != nil {
+		return err
+	}
+	return c.runtime.writeOutput(ctx, updated)
+}
+
+type GroupListCommand struct {
+	Page     *int    `name:"page" help:"任意: 取得するページ番号（1 開始）。"`
+	PerPage  *int    `name:"per-page" help:"任意: 1 ページあたりの取得件数。"`
+	Ordering *string `name:"ordering" help:"任意: 並び順。name または -name を指定します。"`
+	UserID   *int    `name:"user-id" help:"任意: 指定したユーザーが所属するグループに絞り込みます。"`
+	factory  GroupAPIFactory
+	runtime  GroupRuntime
+}
+
+func (c *GroupListCommand) Run(ctx *kong.Context) error {
+	if err := c.runtime.validateOutput(ctx); err != nil {
+		return err
+	}
+	params := group.ListParams{Page: c.Page, PerPage: c.PerPage}
+	if c.Ordering != nil {
+		ordering := v1.ListGroupsOrdering(*c.Ordering)
+		params.Ordering = &ordering
+	}
+	if c.UserID != nil {
+		params.User = &v1.User{ID: *c.UserID}
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	items, err := op.List(context.Background(), params)
+	if err != nil {
+		return err
+	}
+	return c.runtime.writeOutput(ctx, items)
+}
+
+func (r UserRuntime) validateOutput(ctx *kong.Context) error {
+	if r.ValidateOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return r.ValidateOutput(ctx)
+}
+
+func (r UserRuntime) writeOutput(ctx *kong.Context, value any) error {
+	if r.WriteOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return r.WriteOutput(ctx, value)
+}
+
+func (r GroupRuntime) validateOutput(ctx *kong.Context) error {
+	if r.ValidateOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return r.ValidateOutput(ctx)
+}
+
+func (r GroupRuntime) writeOutput(ctx *kong.Context, value any) error {
+	if r.WriteOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return r.WriteOutput(ctx, value)
+}
+
+// userAPI は SDK の UserAPI をラップし、一覧出力を items 配列にします。
+// SDK は items とともにページング情報（count、next、previous）を返しますが、
+// skr は他のドメインと同様に一覧出力を単純な JSON 配列に保ちます。
+type userAPI struct{ user.UserAPI }
+
+func (a userAPI) List(ctx context.Context, params user.ListParams) ([]v1.User, error) {
+	result, err := a.UserAPI.List(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return result.Items, nil
+}
+
+// groupAPI は SDK の GroupAPI をラップし、一覧出力を items 配列にします。
+type groupAPI struct{ group.GroupAPI }
+
+func (a groupAPI) List(ctx context.Context, params group.ListParams) ([]v1.Group, error) {
+	result, err := a.GroupAPI.List(ctx, params)
+	if err != nil {
+		return nil, err
+	}
+	return result.Items, nil
+}
+
+func NewUserAPI(trace bool) (UserAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return userAPI{user.NewUserOp(client)}, nil
+}
+
+func NewGroupAPI(trace bool) (GroupAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return groupAPI{group.NewGroupOp(client)}, nil
+}
+
+func NewPolicyAPI(trace bool) (PolicyAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewIAMPolicyOp(client), nil
+}
+
+func NewAuthAPI(trace bool) (AuthAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewAuthOp(client), nil
+}
+
+func NewFolderAPI(trace bool) (FolderAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewFolderOp(client), nil
+}
+
+func NewIAMRoleAPI(trace bool) (IAMRoleAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewIAMRoleOp(client), nil
+}
+
+func NewIDPolicyAPI(trace bool) (IDPolicyAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewIDPolicyOp(client), nil
+}
+
+func NewIDRoleAPI(trace bool) (IDRoleAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewIDRoleOp(client), nil
+}
+
+func NewOrganizationAPI(trace bool) (OrganizationAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewOrganizationOp(client), nil
+}
+
+func NewProjectAPI(trace bool) (ProjectAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewProjectOp(client), nil
+}
+
+func NewProjectAPIKeyAPI(trace bool) (ProjectAPIKeyAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewProjectAPIKeyOp(client), nil
+}
+
+func NewSCIMAPI(trace bool) (ScimAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewScimOp(client), nil
+}
+
+func NewServicePolicyAPI(trace bool) (ServicePolicyAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewServicePolicyOp(client), nil
+}
+
+func NewServicePrincipalAPI(trace bool) (ServicePrincipalAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewServicePrincipalOp(client), nil
+}
+
+func NewSSOAPI(trace bool) (SSOAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewSSOOp(client), nil
+}
+
+func NewUser2FAAPI(trace bool, userID int) (User2FAAPI, error) {
+	client, err := newIAMClient(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewUser2FAOp(client, &v1.User{ID: userID}), nil
+}
+
+func newIAMClient(trace bool) (*v1.Client, error) {
+	client, err := clientconfig.New(trace)
+	if err != nil {
+		return nil, err
+	}
+	return iam.NewClient(client)
+}
+
+type ServicePrincipalIssueTokenCommand struct {
+	AssertionFile string `name:"assertion-file" required:"" help:"必須: アサーションを記載したファイル。- の場合は標準入力から読み込みます。"`
+	factory       ServicePrincipalAPIFactory
+	runtime       ServicePrincipalRuntime
+}
+
+func (c *ServicePrincipalIssueTokenCommand) Run(ctx *kong.Context) error {
+	if c.runtime.ValidateOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	if err := c.runtime.ValidateOutput(ctx); err != nil {
+		return err
+	}
+	assertion, err := readAssertion(c.AssertionFile)
+	if err != nil {
+		return err
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	token, err := op.IssueToken(context.Background(), assertion)
+	if err != nil {
+		return err
+	}
+	if c.runtime.WriteOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return c.runtime.WriteOutput(ctx, token)
+}
+
+type ServicePrincipalUploadKeyCommand struct {
+	ID            int    `arg:"" name:"id" help:"公開鍵を登録するサービスプリンシパル ID。"`
+	PublicKeyFile string `name:"public-key-file" required:"" help:"必須: 公開鍵ファイル。- の場合は標準入力から読み込みます。"`
+	factory       ServicePrincipalAPIFactory
+	runtime       ServicePrincipalRuntime
+}
+
+func (c *ServicePrincipalUploadKeyCommand) Run(ctx *kong.Context) error {
+	if c.runtime.ValidateOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	if err := c.runtime.ValidateOutput(ctx); err != nil {
+		return err
+	}
+	publicKey, err := readTextInput(c.PublicKeyFile, "--public-key-file", "public key")
+	if err != nil {
+		return err
+	}
+	if c.factory == nil {
+		return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory()
+	if err != nil {
+		return err
+	}
+	result, err := op.UploadKey(context.Background(), c.ID, v1.ServiceprincipalKeyPublicKey(publicKey))
+	if err != nil {
+		return err
+	}
+	if c.runtime.WriteOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return c.runtime.WriteOutput(ctx, result)
+}
+
+func readAssertion(path string) (string, error) {
+	return readTextInput(path, "--assertion-file", "assertion")
+}
+
+func readTextInput(path, flag, subject string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("%s が必要です（標準入力を使う場合は - を指定します）", flag)
+	}
+	var data []byte
+	if path == "-" {
+		var err error
+		data, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read %s from standard input: %w", subject, err)
+		}
+	} else {
+		var err error
+		//nolint:gosec // パスはユーザーが明示的に指定したものです。
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read %s file: %w", subject, err)
+		}
+	}
+	value := strings.TrimSpace(string(data))
+	if value == "" {
+		return "", fmt.Errorf("%s is empty", subject)
+	}
+	return value, nil
+}
+
+// DecodeRequest は --request の JSON をデコードし、@path.json 形式もサポートします。
+func DecodeRequest(input string, destination any) error {
+	var data []byte
+	if strings.HasPrefix(input, "@") {
+		var err error
+		data, err = os.ReadFile(strings.TrimPrefix(input, "@"))
+		if err != nil {
+			return fmt.Errorf("read request file: %w", err)
+		}
+	} else {
+		data = []byte(input)
+	}
+	switch request := destination.(type) {
+	case *organization.GetServicePolicyParams:
+		var apiRequest struct {
+			IsActive *bool                                 `json:"is_active"`
+			IsDryRun *bool                                 `json:"is_dry_run"`
+			Name     *string                               `json:"name"`
+			Code     *string                               `json:"code"`
+			Type     *v1.ReadOrganizationServicePolicyType `json:"type"`
+		}
+		if err := json.Unmarshal(data, &apiRequest); err != nil {
+			return fmt.Errorf("decode request JSON: %w", err)
+		}
+		*request = organization.GetServicePolicyParams{
+			IsActive: apiRequest.IsActive,
+			IsDryRun: apiRequest.IsDryRun,
+			Name:     apiRequest.Name,
+			Code:     apiRequest.Code,
+			Type:     apiRequest.Type,
+		}
+		return nil
+	case *projectapikey.CreateParams:
+		var apiRequest struct {
+			ProjectID        int      `json:"project_id"`
+			Name             string   `json:"name"`
+			Description      string   `json:"description"`
+			ServerResourceID *string  `json:"server_resource_id"`
+			IamRoles         []string `json:"iam_roles"`
+			Zone             *string  `json:"zone_id"`
+		}
+		if err := json.Unmarshal(data, &apiRequest); err != nil {
+			return fmt.Errorf("decode request JSON: %w", err)
+		}
+		*request = projectapikey.CreateParams{
+			ProjectID:        apiRequest.ProjectID,
+			Name:             apiRequest.Name,
+			Description:      apiRequest.Description,
+			ServerResourceID: apiRequest.ServerResourceID,
+			IamRoles:         apiRequest.IamRoles,
+			Zone:             apiRequest.Zone,
+		}
+		return nil
+	case *projectapikey.UpdateParams:
+		var apiRequest struct {
+			Name             string   `json:"name"`
+			Description      string   `json:"description"`
+			ServerResourceID *string  `json:"server_resource_id"`
+			IamRoles         []string `json:"iam_roles"`
+			Zone             *string  `json:"zone_id"`
+		}
+		if err := json.Unmarshal(data, &apiRequest); err != nil {
+			return fmt.Errorf("decode request JSON: %w", err)
+		}
+		*request = projectapikey.UpdateParams{
+			Name:             apiRequest.Name,
+			Description:      apiRequest.Description,
+			ServerResourceID: apiRequest.ServerResourceID,
+			IamRoles:         apiRequest.IamRoles,
+			Zone:             apiRequest.Zone,
+		}
+		return nil
+	}
+	if err := json.Unmarshal(data, destination); err != nil {
+		return fmt.Errorf("decode request JSON: %w", err)
+	}
+	return nil
+}
+
+// readPassword はファイルまたは標準入力からパスワードを読み込みます。
+func readPassword(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("--password-file が必要です（標準入力を使う場合は - を指定します）")
+	}
+	var data []byte
+	if path == "-" {
+		var err error
+		data, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return "", fmt.Errorf("read password from standard input: %w", err)
+		}
+	} else {
+		var err error
+		//nolint:gosec // パスは --password-file 経由でユーザーが明示的に指定したものです。
+		data, err = os.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read password file: %w", err)
+		}
+	}
+	password := strings.TrimSpace(string(data))
+	if password == "" {
+		return "", fmt.Errorf("password is empty")
+	}
+	return password, nil
+}

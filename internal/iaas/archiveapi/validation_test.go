@@ -1,0 +1,56 @@
+// Copyright 2022-2026 The sacloud/skr Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package archiveapi
+
+import (
+	"testing"
+
+	"github.com/sacloud/sacloud-sdk-go/api/iaas/ostype"
+	"github.com/stretchr/testify/require"
+)
+
+func TestTypedRequestValidators(t *testing.T) {
+	for _, test := range []struct {
+		testName string
+		validate func() error
+		wantErr  string
+	}{
+		{testName: "find valid", validate: func() error { return ValidateFindRequest(&FindRequest{Zone: "is1b"}) }},
+		{testName: "find os type", validate: func() error {
+			return ValidateFindRequest(&FindRequest{Zone: "is1b", OSType: ostype.Ubuntu2404})
+		}},
+		{testName: "invalid os type", validate: func() error {
+			return ValidateFindRequest(&FindRequest{Zone: "is1b", OSType: -1})
+		}, wantErr: "OSType が不正"},
+		{testName: "unknown os type number", validate: func() error {
+			return ValidateFindRequest(&FindRequest{Zone: "is1b", OSType: 1000})
+		}, wantErr: "OSType が不正"},
+		{testName: "os type and names", validate: func() error {
+			return ValidateFindRequest(&FindRequest{Zone: "is1b", OSType: ostype.Ubuntu2404, Names: []string{"image"}})
+		}},
+		{testName: "os type and tags", validate: func() error {
+			return ValidateFindRequest(&FindRequest{Zone: "is1b", OSType: ostype.Ubuntu2404, Tags: []string{"stable"}})
+		}},
+	} {
+		t.Run(test.testName, func(t *testing.T) {
+			err := test.validate()
+			if test.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, test.wantErr)
+		})
+	}
+}

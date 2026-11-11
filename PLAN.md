@@ -1,0 +1,169 @@
+# API コマンド対応計画
+
+## 対象と方針
+
+対象 SDK は `go.mod` で指定している [sacloud-sdk-go v0.5.0](https://github.com/sacloud/sacloud-sdk-go/tree/v0.5.0) です。IaaS は `service/iaas` のサービスパッケージ、IaaS 以外は `api` 直下の API ドメインを棚卸ししています。SDK の配置ではなく実際の API route とドメインに基づいて CLI の境界を決めます。`service/iaas` に含まれる API でも、System API や CommonServiceItem を使うものは `iaas-api` のリソース候補と分けて管理します。
+
+一覧は SDK の提供範囲を把握するためのもので、すべてのパッケージをそのまま CLI コマンドにすることを決めるものではありません。各パッケージで公開操作、入力、出力、固有の検証を確認し、対応範囲を明示して段階的に実装します。コマンドの階層は `<domain>-api <resource>` とし、SDK の型だけから公開操作や入力の意味を推測しません。詳細は [ADR 0016](docs/adr/0016-generate-low-level-api-commands.md) に従います。
+
+API コマンド生成器は、IaaS 用の `cmd/apigen-iaas` / `generate-iaas-api` と、IaaS 以外の Ogen 系 API 用の共通入口 `cmd/apigen-api` / `generate-api` を使います。EventBus、SimpleMQ などの Ogen 系 API は、サービスごとに生成器入口を増やさず、操作・引数・ヘルプを設定で明示して生成します。IaaS と Ogen 系 API は異なる SDK 形式に合わせて別の入口を維持し、共通化できる実装のみ共有します。`internal/cli` 配下の配線コードは [ADR 0068](docs/adr/0068-generate-cli-wiring.md) に従い `cmd/apigen-wiring` / `generate-wiring` で生成します。入口があることは、そのドメインの全操作が CLI に実装済みであることを意味しません。
+
+SimpleMQ のキュー／メッセージ API コマンドは [`api/commands/simplemq-queue.json`](api/commands/simplemq-queue.json) と [`api/commands/simplemq-message.json`](api/commands/simplemq-message.json) を使って生成します。SDK 固有の入力補完や出力整形が必要な操作は手書きハンドラーに残します。
+
+この一覧の `[x]` は、説明に列挙した操作が CLI に実装済みであることを示します。SDK の全操作への対応を示すものではありません。ライブ E2E runner とチュートリアルの有無は、それぞれ別に記載します。
+
+## IaaS リソース候補
+
+SDK のサービスパッケージごとに対応状況を管理します。実装済みコマンドの操作範囲は「実装済み IaaS コマンドの対応範囲」に記載し、ここには未実装の候補を記載します。
+
+- [ ] `bridge`
+- [ ] `cdrom`
+- [ ] `coupon`
+- [ ] `iface`
+- [ ] `license`
+- [ ] `loadbalancer`
+- [ ] `mobilegateway`
+- [ ] `nfs`
+- [ ] `note`
+- [ ] `privatehost`
+- [ ] `subnet`
+- [ ] `vpcrouter`
+
+## 実装済み IaaS コマンドの対応範囲
+
+チェックは列挙した操作の CLI 実装状況を示します。SDK にある未対応操作、ライブ E2E、チュートリアルの状況も併記します。
+
+2026-11-04 に API 層移行後の Archive、Disk、Icon、IPAddress、IPv6Addr、IPv6Net、PacketFilter、Region、ServiceClass、Switch、Zone のライブ E2E を直列で再実行し、すべて成功しました。IPv6 のシナリオは作成した Internet が API から参照可能になるまで待ってから実行します。
+
+- [x] `archive`
+    - `iaas-api archive` の Find / Read を実装済みです。Find はゾーン、タグ、公開アーカイブの OS 種別で検索できます。
+    - SDK の Create / Update / Delete / Upload / Download / OpenFTP / CloseFTP / WaitReady は未対応です。
+    - 読み取り専用の [testing.T ベースのシナリオテスト](test/e2e/archive/scenario_archive_test.go) ([ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)) と[チュートリアル](docs/manual/tutorials/iaas-api/archive.md)があります。is1b で検索・参照を確認済みです。2026-10-29 に testing.T ベースのシナリオテストへ移行し、コマンド名に合わせて [test/e2e/archive/](test/e2e/archive/) へ分割しました。
+- [x] `database`
+    - `iaas-api database` の Find / Read / Create / Update / Delete、Boot / Shutdown / Reset、Monitor (CPU / Disk / Interface / Database)、ListParameter を実装済みです。
+    - Find は `--name` による単一名の部分一致検索に対応します。Create はパスワードという秘密情報を含むため `--request` は保護したファイルまたは標準入力に限定し、個別フラグのパスワードも `@path` または `-` で受け付けます。Create は起動の完了を待たずに応答を返します。
+    - すべての操作で SDK の service 層 (builder) を経由せず api 層の操作を直接呼び出します。Delete / Boot / Shutdown の電源操作と完了待ちは api 層の補助機能で実装しています。Update はゾーン・ID を個別フラグで指定し、更新内容は JSON 専用 (`@path.json` または `-`) です。送信した内容で設定が置き換わるため、既存の設定を維持する項目は JSON に再指定します。Monitor は RFC3339 の `--start` / `--end` を個別フラグで指定できます。設計は[設計文書](docs/design/database-api.md)を参照してください。
+    - ライブ E2E は create → read → list-parameter → find → Monitor 4種 → update → shutdown → boot → reset → delete まで確認済みです。sacloud-sdk-go の service 層の不具合 ([#319](https://github.com/sacloud/sacloud-sdk-go/issues/319)、[#320](https://github.com/sacloud/sacloud-sdk-go/issues/320)) は update も api 層の操作に移行して回避し、実機で検証しました。
+    - [チュートリアル](docs/manual/tutorials/iaas-api/database.md)を作成済みです。
+- [x] `disk` — `iaas-api disk` の Find / Read / Create / Update / Delete を実装済みです。Create は必須・任意の単純値とタグ、Update はゾーン・ID・変更する単純値とタグを個別フラグで指定でき、複雑な入力には JSON を使います。Find は `--name` による単一名の部分一致検索に対応します。SDK の Apply / ConnectToServer / DisconnectFromServer / Edit / MonitorDisk / ResizePartition / WaitReady は未対応です。is1b で作成・検索・参照・更新・削除と削除後を確認する [ライブ E2E runner](test/e2e/disk/) と[チュートリアル](docs/manual/tutorials/iaas-api/disk.md)があります。
+- [x] `internet` — `iaas-api internet` の Find / Read / Create / Update / Delete、サブネット操作、IPv6 操作、MonitorRouter を実装済みです。Find は `--name` による単一名の部分一致検索、Delete は `--force` と `--fail-if-not-found` に対応します。ルータ＋スイッチ、Server、起動 Disk を作成し、サブネットから選んだ IPv4 アドレスを NIC の OS 設定へ適用して SSH 接続する [ライブ E2E](test/e2e/internet/) と[チュートリアル](docs/manual/tutorials/iaas-api/internet.md)があります。個別オプションだけの操作で is1b の作成・NIC 接続・名前検索・サブネット参照・SSH ログイン・削除後の不在に加え、Update(更新と復元)、MonitorRouter、追加サブネットの追加・NextHop 更新・削除、IPv6 の有効化・参照・無効化のライブ検証を確認済みです。E2E は 2026-10-29 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従う testing.T ベースのシナリオテストへ移行済みです。ADR 0071 に従う API 層への移行が完了し、service 層への依存を除去しました。2026-11-04 に移行後の Internet live E2E を再実行し、サブネット情報の参照、SSH 接続、更新と復元、追加サブネット・IPv6 操作、作成リソースの削除と不在を確認済みです。
+- [x] `ipaddress` — `iaas-api ipaddress` の List / Read / UpdateHostName を実装済みです。List と Read はゾーンを必須とし、UpdateHostName は逆引きホスト名を `--host-name` で指定し、省略時は空に設定します。[ライブ E2E](test/e2e/ipaddress/) と[チュートリアル](docs/manual/tutorials/iaas-api/ipaddress.md)があります。is1b で一覧・参照、存在しないアドレスの参照、共有セグメントのサーバに割り当てられたアドレスへの逆引き設定と解除を確認済みです。設計は[設計文書](docs/design/iaas-ipv6-api.md)を参照してください。
+- [x] `ipv6addr` — `iaas-api ipv6addr` の Find / Create / Read / Update / Delete を実装済みです。Create と Update はゾーン、IPv6 アドレス、逆引きホスト名を個別フラグで指定でき、Delete は成功時に出力しません。[ライブ E2E](test/e2e/ipv6addr/) と[チュートリアル](docs/manual/tutorials/iaas-api/ipv6addr.md)があります。is1b で検索、存在しないアドレスの参照、有効化したプレフィクス内のアドレスへの逆引き登録・変更・解除を確認済みです。設計は[設計文書](docs/design/iaas-ipv6-api.md)を参照してください。
+- [x] `ipv6net` — `iaas-api ipv6net` の Find / Read を実装済みです。検索条件には名前やタグのフィールドがなく、絞り込みは `--request` の JSON で行います。ルータ＋スイッチを作成して IPv6 アドレス割り当てを有効化したうえで find と read を検証する [ライブ E2E](test/e2e/ipv6net/) と[チュートリアル](docs/manual/tutorials/iaas-api/ipv6net.md)があります。設計は[設計文書](docs/design/iaas-ipv6-api.md)を参照してください。
+- [x] `icon` — `iaas-api icon` の Find / Read / Create / Update / Delete を実装済みです。Create は `--image-file` で画像ファイルを読み込み、API 用の Base64 文字列へ変換します。更新できる項目は Name と Tags です。CRUD の[ライブ E2E](test/e2e/icon/) と[チュートリアル](docs/manual/tutorials/iaas-api/icon.md)を追加済みです。ライブ E2E で作成・検索・参照・更新・削除と削除後の不在を確認済みです。
+- [x] `packetfilter` — `iaas-api packetfilter` の Find / Read / Create / Update / Delete を実装済みです。ルールの Expression 配列は `--expressions` の JSON 値または `--request` で指定し、ゾーン、名前、ID などの単純値はフラグで指定できます。is1b で作成・検索・参照・ルール更新・削除を確認する [ライブ E2E runner](test/e2e/packetfilter/) と[チュートリアル](docs/manual/tutorials/iaas-api/packetfilter.md)があります。ライブ E2E で各操作と削除後の不在を確認済みです。NIC への適用とパケット通信の検証は対象外です。
+- [x] `server`
+    - [x] Find / Read / Create / Boot / Update / Delete を実装済みです。
+    - Create では基本項目に加え、反復可能な `--disk` と `--nic` で複数ディスクと共有／未接続／スイッチ ID 接続の NIC を指定できます。Find は `--name` による単一名の部分一致検索に対応します。Boot は user-data のファイル／標準入力に対応します。
+    - Create の定型的な入力処理・検証・API 呼び出しは生成し、ディスク／NIC の固有変換だけを型付き callback に接続します。生成への移行後も is1b のライブ E2E で作成・起動・SSH 接続・削除後の不在を確認済みです。生成器との境界は [ADR 0042](docs/adr/0042-generated-request-transform.md) に記載しています。Boot は手書きを維持します。
+    - SDK の EjectCDROM / InsertCDROM / MonitorCPU / Reset / SendNMI / WaitBoot / WaitShutdown は **未対応**です。
+    - is1b で新記法による cloud-init 起動・SSH 接続・削除・一時 SSH ファイルの後始末、Update(更新・復元)のライブ検証を確認済みです。2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従う testing.T ベースのシナリオテスト ([test/e2e/server/](test/e2e/server/)) へ移行し、SSH 鍵の生成と SSH 接続の確認は [helper](test/e2e/internal/helper/) ([ADR 0063](docs/adr/0063-reusable-ssh-and-local-command-recording.md)) に移しました。同じ日に移行後のシナリオをライブ再実行し、cloud-init 起動・SSH 接続・更新・復元・削除と後片付けを確認済みです。同日に作成前の同名確認、後片付けの再照合と不在確認、起動待ちのポーリングを SDK で直接実行するよう変更しました ([ADR 0064](docs/adr/0064-e2e-safety-checks-via-sdk.md))。ADR 0071 に従う API 層への移行が完了し、service 層への依存を除去しました。2026-11-04 に移行後の Server live E2E を再実行し、cloud-init 起動・SSH 接続・更新と復元、Disk の準備完了待ち、強制停止を含む削除と不在確認を確認済みです。[チュートリアル](docs/manual/tutorials/iaas-api/server.md)があります。設計は [ADR 0040](docs/adr/0040-server-cloud-init-and-ssh-tutorial.md)、[ADR 0041](docs/adr/0041-server-repeatable-disk-and-nic-options.md) と[設計文書](docs/design/server-cloud-init-ssh.md)を参照してください。
+- [x] `switch` — SDK の `swytch` に対応する `iaas-api switch` の Find / Read / Create / Update / Delete を実装済みです。SDK の公開操作はすべて CLI にあります。is1b で作成・検索・参照・更新・削除を検証する [ライブ E2E](test/e2e/switch/)（testing.T ベースのシナリオ）と[チュートリアル](docs/manual/tutorials/iaas-api/switch.md)があります。2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従い testing.T ベースのシナリオテストへ移行し、同じ日に移行後のシナリオをライブ再実行して作成・検索・射影・参照・更新・削除と後片付けを確認済みです。
+
+## CommonServiceItem 系 API 候補
+
+SDK の `service/iaas` にありますが、CommonServiceItem を使う API は通常の `iaas-api <resource>` 候補と分けます。CLI では `containerregistry` の例のように、`container-registry-api` などサービスごとの API コマンドにすることを想定します。
+Simple Notification の group／destination API も CommonServiceItem を使いますが、候補一覧では非 IaaS API ドメイン欄の `simple-notification` にまとめます。
+
+- [ ] `autobackup`
+- [ ] `autoscale`
+- [x] `containerregistry` — `container-registry-api` でレジストリと認証ユーザーを管理します。ライブ E2E テストと[チュートリアル](docs/manual/tutorials/container-registry-api.md)を追加済み
+- [ ] `dns`
+- [x] `gslb` — `gslb-api` で Find / Read / Create / Update / Delete を実装済みです。単純値、ヘルスチェックのフラットなフラグ、反復可能な `--destination-server` と JSON 入力に対応します。[testing.T ベースのライブ E2E](test/e2e/gslb/) で実サーバーとソーリーサーバーを各1台作成し、ping 監視による停止・復帰時の応答先切り替えを `NOERROR` と期待 IP の完全一致で確認済みです。GSLB の CRUD、両サーバーのディスク込み削除、各リソースの不在も確認済みです。以前の単一宛先・空応答による停止確認は不十分なため、この構成で置き換えました。[チュートリアル](docs/manual/tutorials/gslb-api.md)では両サーバーの準備、ソーリーサーバーへの切り替えと復帰、更新、ディスクの個別削除を説明します
+- [ ] `localrouter`
+- [x] `proxylb` — `proxylb-api` で Find / Read / Create / Update / Delete を実装済みです。証明書の GetCertificates / SetCertificates / DeleteCertificates、`renew-lets-encrypt-cert`、`health-status`、`monitor-connection` も実装済みです。単純値、リッスンポートの反復可能な `--bind-port`、配下サーバーの反復可能な `--server`、ヘルスチェックのフラットなフラグ、`--name` 部分一致検索、条件なしの全件検索、JSON 入力に対応します。ヘルスチェックは Create で必須、Update では未指定時に現在の設定が引き継がれます。タイムアウトは Create の未指定時に 10 が設定され、Update の未指定時は現在値が引き継がれます ([ADR 0072](docs/adr/0072-proxylb-api-command-options.md))。[testing.T ベースのライブ E2E](test/e2e/proxylb/) では cloud-init で起動した一時サーバーを配下サーバーとし、plan 100 の ProxyLB を作成します。作成直後に割り当てられる VIP 宛ての HTTP GET と HTTPS GET、`health-status` の稼働状態、接続数モニタリングを確認済みです。自己署名証明書の設定・取得・削除、Update も確認済みです。`renew-lets-encrypt-cert` は Let's Encrypt 未設定時のエラー (異常系) のみ確認済みで、正常系は実在ドメインの DNS 検証が必要なため [#199](https://github.com/sacloud/skr/issues/199) で追跡します。FQDN は API が非同期に割り当てるため、作成直後の応答には含まれません。トラフィックの確認は VIP で行いました。作成したリソースの ID と識別情報を照合して削除し、不在も確認済みです。[チュートリアル](docs/manual/tutorials/proxylb-api.md)では配下サーバーの準備、リッスンポートと配下サーバーの登録、稼働状態と証明書の確認、更新と後片付けを説明します
+- [ ] `simplemonitor`
+
+## IaaS の補助・プラン系サービス候補
+
+IaaS API のコマンド階層は SDK のサービスパッケージ名ではなく、実際の API route に合わせます。たとえば `/api/cloud/1.1/product/server` は `iaas-api product server`、`/api/cloud/1.1/public/price` は `iaas-api public price` です。低レベル API 操作が SDK にある場合は `sacloud-sdk-go/api/iaas` を直接使い、Find の応答 envelope を含む API 応答モデルを JSON 出力します。JSON は SDK の型から再エンコードするため HTTP body のバイト列そのものではありません。既存 IaaS コマンドの他の出力経路は別途段階的に見直します。
+
+SDK v0.5.0 の route を確認し、未実装候補の CLI 階層を次のように整理します。
+
+| API | route | CLI 階層 |
+| --- | --- | --- |
+| InternetPlan | `/api/cloud/1.1/product/internet` | `product internet` |
+| LicenseInfo | `/api/cloud/1.1/product/license` | `product license` |
+| PrivateHostPlan | `/api/cloud/1.1/product/privatehost` | `product privatehost` |
+| Region | `/api/cloud/1.1/region` | `region` |
+| ServerPlan | `/api/cloud/1.1/product/server` | `product server` |
+| ServiceClass | `/api/cloud/1.1/public/price` | `public price` |
+| Zone | `/api/cloud/1.1/zone` | `zone` |
+| DiskPlan | `/api/cloud/1.1/product/disk` | `product disk` |
+
+- [x] `region` — `iaas-api region` の Find / Read を実装済みです。Find は件数・開始位置をフラグで指定でき、検索名・Sort は JSON で指定します。Read は ID で参照します。Region API はゾーン指定を受け付けません。SDK の公開操作はすべて CLI にあります。読み取り専用の[ライブ E2E runner](test/e2e/region/) と[チュートリアル](docs/manual/tutorials/iaas-api/region.md)を追加し、実環境で Find / Read の結果一致を確認済みです。
+- [x] `serverplan` — `iaas-api product server` の Find / Read を実装済みです。`api/iaas.ServerPlanAPI` を使い、Find の API 応答 envelope を含む JSON を出力します。CPU、メモリ、GPU、CPU モデル、利用可否などを検索・参照できます。読み取り専用の [testing.T ベースのシナリオテスト](test/e2e/serverplan/scenario_serverplan_test.go) ([ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)) と[チュートリアル](docs/manual/tutorials/iaas-api/server-plan.md)があります。is1b のライブ E2E で Find の結果と Read の ID・プラン情報の一致を確認済みです。2026-10-27 に testing.T ベースのシナリオテストへ移行しました。
+- [x] `serviceclass` — 現在は `iaas-api service-class` の Find を実装済みです。指定ゾーンのサービスクラス一覧を取得できます。SDK route は `/public/price` のため、route に沿う `iaas-api public price` への移行は未対応です。読み取り専用の [testing.T ベースのシナリオテスト](test/e2e/serviceclass/scenario_serviceclass_test.go) ([ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)) と[チュートリアル](docs/manual/tutorials/iaas-api/serviceclass.md)があります。`is1b` でライブ E2E を実行し、517 件のサービスクラスを取得して、各項目の ID・名前・パスを検証済みです。2026-10-27 に testing.T ベースのシナリオテストへ移行しました。
+- [x] `zone` — `iaas-api zone` の Find と Read を実装済みです。ゾーン一覧の取得、jq での名前抽出、ID での参照を確認する読み取り専用の[シナリオテスト](test/e2e/zone/scenario_zone_test.go)と[チュートリアル](docs/manual/tutorials/iaas-api/zone.md)があります。
+- [x] `diskplan` — `iaas-api product disk` の Find / Read を実装済みです。`api/iaas.DiskPlanAPI` を使い、Find の API 応答 envelope を含む JSON を出力します。検索結果の API `Availability` と `Size` から、指定ゾーンの利用可否とサイズを確認できます。SDK の公開操作はすべて CLI にあります。読み取り専用の [testing.T ベースのシナリオテスト](test/e2e/diskplan/scenario_diskplan_test.go) ([ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)) と[チュートリアル](docs/manual/tutorials/iaas-api/disk-plan.md)があります。is1b で検索・参照とページング指定を確認済みです。2026-10-29 に testing.T ベースのシナリオテストへ移行し、コマンド名に合わせて [test/e2e/diskplan/](test/e2e/diskplan/) へ分割しました。
+- [x] `internetplan` — `iaas-api product internet` の Find / Read を実装済みです。ゾーン別プランの帯域幅と利用可否を確認できます。
+- [x] `licenseinfo` — `iaas-api product license` の Find を実装済みです。API に Read 操作はありません。
+- [x] `privatehostplan` — `iaas-api product privatehost` の Find / Read を実装済みです。CPU、CPU モデル、メモリ、利用可否を確認できます。
+- 3 リソースの読み取り専用ライブ E2E (`scenario_iaas_product_plans_test.go`) と[チュートリアル](docs/manual/tutorials/iaas-api/internet-plan.md)、[チュートリアル](docs/manual/tutorials/iaas-api/license-info.md)、[チュートリアル](docs/manual/tutorials/iaas-api/private-host-plan.md)があります。is1b のライブ E2E で InternetPlan / PrivateHostPlan の Find と Read の一致を確認し、LicenseInfo の Find 応答を検証済みです。クラウドリソースの変更はありません。
+- コマンド範囲と読み取り専用 E2E の判断は [ADR 0055](docs/adr/0055-iaas-product-plan-api-commands.md) に記録しています。
+
+## IaaS SDK に同居する System API 候補
+
+`service/iaas/bill` は SDK 上では IaaS 配下ですが、対象 route は `/api/system/1.0/bill` であり、IaaS resource route ではありません。そのため `iaas-api` には含めず、独立した `bill-api` コマンドとして扱う方向です。SDK の公開操作に合わせて `bill-api list` と `bill-api csv` を候補とし、応答と CSV の出力形式を含む実装範囲は着手時に確認します。CLI 実装、ライブ E2E、チュートリアルはいずれも未対応です。
+
+## IaaS 以外の API ドメイン候補
+
+SDK の `api` 直下には、IaaS 以外に次の API ドメインがあります。CLI コマンドの実装、ライブ E2E、チュートリアルの対応状況は分けて記載します。コマンドの入口があることは、そのドメインの SDK 操作すべてへの対応を意味しません。
+
+- [x] `iam` — `iam-api` コマンドと[チュートリアル](docs/manual/tutorials/iam-api.md)を実装済みです。[ライブ E2E](test/e2e/iam-api/)（testing.T ベースのシナリオ）は59の末端コマンドのうち58コマンドをライブ検証済みで、sso link/unlink (`assign-sso-profile` / `unassign-sso-profile`) の2操作は [#144](https://github.com/sacloud/skr/issues/144) で対応します。2026-10-26 に57コマンドをライブ検証し、2026-10-29 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従い testing.T ベースのシナリオテストへ移行しました。移行時に未検証だった `group update` のカバレッジを追加しました。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) のフェーズ 3 として operationId 派生名へ移行し、同じ日に派生名で 9 シナリオのライブ再実行も行いました。残りの状況は[ライブ E2E の対応状況](docs/design/live-e2e-coverage.md)で管理します。
+- [x] `eventbus` — `eventbus-api`。実行設定・スケジュール・トリガーを CommonServiceItem として統合し、5操作で `--provider-class` による種別選択、シークレット更新は `set-process-configuration-secret` で提供します。Provider 補完 (`request_input_transform`)・リクエスト検証・シークレット入力とエラー伝播のドメイン単体テストを実装済みです。[ライブ E2E](test/e2e/eventbus-api/)は process-configuration と trigger の作成・参照・削除、update-secret、schedule のライフサイクル、SimpleMQ 連携を検証済みです。2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従い testing.T ベースのシナリオテストへ移行し、全工程を再実行しました。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) のフェーズ 3 として operationId 派生名へ移行しました。
+- [x] `simplemq` — `simplemq-api`。キュー／メッセージコマンドは `apigen-api` を使います。12の末端コマンドを1シナリオで実行する[ライブ E2E](test/e2e/simplemq/)（testing.T ベースのシナリオ）と[チュートリアル](docs/manual/tutorials/simplemq-api.md)があります。2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従い testing.T ベースのシナリオテストへ移行し、同じ日に移行後のシナリオをライブ再実行して作成・参照・射影・設定更新・API キー発行・メッセージ操作・削除を確認済みです。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) のフェーズ 2 として operationId 派生名へ移行し、E2E の sakumock 検証と命名検証を更新済みです。同じ日に派生名でライブ再実行し、作成・参照・射影・設定更新・API キー発行・メッセージ操作・削除と後片付けを確認済みです (実行記録: `test/e2e/simplemq/e2e-output/simplemq-api-20261109115725.md`)。
+- [x] `simple-notification` — `simple-notification-api`。通知先、グループ、ルーティング、履歴の SDK 公開操作を実装済みです。送信は `--message` と JSON 入力に対応します。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) に従い、`skr simple-notification-api <operation>` のフラット名へ移行しました。通知先、グループ、ルーティングは共通の CommonServiceItem 5 操作に統合され、種別は `--provider-class` で指定します。専用操作 (`check-notification-destination-status`、`send-notification`、`reorder-notification-routing`、`list-notification-sources`) と履歴 2 操作は手書きです。[ライブ E2E](test/e2e/simple-notification/)（testing.T ベースのシナリオ）と[チュートリアル](docs/manual/tutorials/simple-notification-api.md)があります。2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従い testing.T ベースのシナリオテストへ移行しました。既存通知先へのテスト送信シナリオと、通知を送信しない CRUD シナリオがあります。ライブではメール通知の処理完了、利用者による実受信、履歴の個別取得、一時通知先・グループ・ルーティングの作成／参照／更新／削除、設定省略時の保持と設定変更、一時ルーティングだけの並べ替え、既存設定の保持、削除後の不在を確認済みです。Webhook の実送信・到達確認は [#130](https://github.com/sacloud/skr/issues/130) で対応します。
+- [ ] `apprun-dedicated` — `apprun-dedicated-api`。リクエスト入力・秘密情報のインライン拒否・エラー伝播のドメイン単体テストを実装済みです。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) の移行計画フェーズ 3 として operationId 派生名 (`create-cluster`、`update-worker-node-draining` など) へ移行し、E2E の sakumock 検証と命名検証を更新済みです。ライブ E2E は全35コマンドがクラスタ作成を前提とするため [#59](https://github.com/sacloud/skr/issues/59) で管理します
+  - CLI 実装済み、ライブ E2E とチュートリアルは未対応。不足分は [#59](https://github.com/sacloud/skr/issues/59) で対応予定
+  - SDK v0.5.0 で追加されたクラスタロードバランサの参照・更新 (`ClusterOp.ReadLoadBalancer` / `UpdateLoadBalancer`) と limits の参照 (`LimitOp.Read`) は CLI 未対応です。`read-cluster-load-balancer`、`patch-cluster-load-balancer`、`read-limits` として追加します ([#202](https://github.com/sacloud/skr/issues/202))
+- [x] `apprun` — `apprun-api` でアプリケーション CRUD・ステータス、バージョンの一覧／参照／削除／ステータス、トラフィック、パケットフィルター、ユーザー操作を実装済みです。Ogen 系 API 共通生成器の設定と生成コードを使います。認証情報を含み得るアプリケーションの作成・更新リクエストは保護したファイルまたは標準入力に限定します。sakumock による CLI 操作テスト、[ライブ E2E](test/e2e/apprun/)（testing.T ベースのシナリオ、[ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)）、[チュートリアル](docs/manual/tutorials/apprun-api.md)があります。ライブでは Application の作成・一覧・参照、`Healthy` への遷移、公開 URL の HTTP 200 とサンプル本文、削除と削除後の不在を確認済みです。Application の Update(1 vCPU / 2Gi の新バージョン作成)、Version の一覧・参照・ステータス・削除、Traffic の一覧・更新、PacketFilter の参照・更新、User の参照も 2026-10-23 に確認済みです。2026-10-27 には testing.T ベースのシナリオとして全工程を再実行しました。チュートリアルに応答例と安全な後片付けを反映しました。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) のフェーズ 3 として operationId 派生名へ移行し、同じ日に派生名でライブ再実行しました
+- [ ] `addon`
+- [ ] `apigw`
+- [ ] `cloudhsm`
+- [ ] `dedicated-storage`
+- [x] `kms` — `kms-api` で KMS キーの SDK 公開10操作 (`list`、`read`、`create`、`update`、`delete`、`rotate`、`change-status`、`schedule-destruction`、`encrypt`、`decrypt`) を実装済みです。`apigen-api` の設定と生成コードを使い、PlainKey (BYOK)、平文、暗号文を引数に含めない `create`、`change-status`、`encrypt`、`decrypt` は手書きで実装しています。秘密鍵と平文・暗号文は保護したファイルまたは標準入力から読み込み、`decrypt` の平文はバイト列のまま標準出力へ出力します。testing.T ベースの[ライブ E2E シナリオ](test/e2e/kms-api/)（[ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)）と[チュートリアル](docs/manual/tutorials/kms-api.md)があります。sakumock v0.13.0 の `kms` サーバーに対し、実際の CLI と SDK を経由して全10コマンドの正常系、暗号化・復号の往復、BYOK キーの `KeyOrigin` を確認しています。ライブ E2E も 2026-10-30 に全10コマンドを正常実行しました。生成モード・BYOK モードのキー作成、参照、一覧、名前と説明の更新、ローテーション (LatestVersion の増加)、暗号化・復号の往復を確認しています。restricted・active の状態変更、削除予約 (pending_destruction、削除予定日時) とその取り消し、削除後の不在も確認しています。プレーン鍵は 256 bit 長の対称鍵を base64 エンコードした形式が必要です。object-storage 暗号化3操作（[#141](https://github.com/sacloud/skr/issues/141)）は本対応で実装・ライブ検証しました。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) の移行計画フェーズ 3 として operationId 派生名 (`create-key` など) へ移行し、E2E の sakumock 検証と命名検証を更新済みです。同じ日に派生名でライブ再実行し、生成モード・BYOK モードのキー作成から削除後の不在確認まで確認済みです (実行記録: `test/e2e/kms-api/e2e-output/kms-api-20261109122456.md`)。旧名でのライブ実績は前段落の 2026-10-30 の記録を参照
+- [ ] `monitoring-suite`
+- [x] `networking-suite` — `networking-suite-api` でサブネットグループ、サブネット、インターフェースコネクション、アドレスの SDK 公開14操作 (`list-subnet-groups`、`read-subnet-group`、`create-subnet-group`、`update-subnet-group`、`delete-subnet-group`、`list-subnets`、`read-subnet`、`create-subnet`、`update-subnet`、`delete-subnet`、`create-interface-connection`、`delete-interface-connection`、`list-addresses`、`read-address`) を実装済みです。コマンド名は operationId から機械派生します ([ADR 0074](docs/adr/0074-api-command-name-structure.md))。別サブネット間の TCP 疎通を確認する testing.T ベースの[ライブ E2E シナリオ](test/e2e/networking-suite/)と[チュートリアル](docs/manual/tutorials/networking-suite-api.md)があります。cloudimg Archive の Server A から Server B へ TCP 接続し、`PONG networking-suite` を受信するライブ検証を完了し、一時リソースを削除しました。共有 NIC と Networking Suite NIC を併用する Server A では、ゲスト OS 側で NWS NIC の DHCP と経路を設定する必要があるため、シナリオとチュートリアルで MAC アドレスに一致する netplan を設定します。2026-10-28 に旧 runner を ADR 0062/0063 のシナリオテストへ移行し、ライブ実行で全14コマンドの正常応答と後片付けを再確認しました。2026-11-09 に operationId 派生名へ移行したコマンドで再実行しました
+- [ ] `nosql`
+- [x] `object-storage` — `object-storage-api` で SDK v0.3.1 の `SiteAPI`、`AccountAPI`、`BucketAPI`、`BucketExtraAPI`、`PermissionsAPI`、`SiteStatusAPI` が公開する全34管理操作を実装済みです。サイト・サイトアカウント・バケット・パーミッション、アクセスキー、暗号化、レプリケーション、状態・クォータ・利用量を操作できます。パーミッションの作成・更新は構造化された JSON を `--request` で受け付けます。バケット作成は `isk01`、`tky01`、`arc02` に対応し、`arc02` では `--plan` を必須にしています。S3 互換 API によるオブジェクト本体の操作は対象外です。testing.T ベースの[ライブ E2E シナリオ](test/e2e/object-storage-api/)の6シナリオで全34コマンドを対象にし、[チュートリアル](docs/manual/tutorials/object-storage-api.md)の手順も含めています。ライブでは32コマンドの正常応答を確認しました。通常・アーカイブバケット、サイトアカウント、パーミッション更新、両種類のキー、サイト間レプリケーション、テスト専用の KMS キーを使う暗号化の有効化・無効化と後片付けが成功しました。状態・クォータ・利用量は東京第1サイトで成功しましたが、`bucket penalty` は404、`site status bucket-metering` は400のため成功未確認です（[#142](https://github.com/sacloud/skr/issues/142)）。sakumock v0.13.0 の `objectstorage` サーバーに対し、実際の CLI と SDK を経由して全34コマンドの正常系を確認し、403と削除後の404も検証しています。ドメインの単体テストには SDK interface の差し替えも使います。対応表と実行条件は[設計文書](docs/design/object-storage-api.md)に記載しています。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) の移行計画フェーズ 3 として operationId 派生名 (`get-clusters`、`create-bucket` など) へ移行し、E2E の sakumock 検証と命名検証を更新済みです
+- [x] `secretmanager` — `secretmanager-api` で SDK v0.3.1 のシークレットマネージャーを操作できます。`vault` リソースの SDK 公開5操作と、`secret` リソースの SDK 公開操作を実装済みです。公開コマンドは `list-vaults`、`read-vault`、`create-vault`、`update-vault`、`delete-vault`、`list-vault-secrets`、`create-vault-secret`、`delete-vault-secret`、`unveil-secret` です。SDK のシークレット取得 API は `unveil` のみのため、値を返す read 操作は提供しません。Vault 作成は既存の KMS キー ID が必須で、Tags は `--request` JSON でのみ指定できます。シークレットの値は `--value-file` (保護したファイルまたは標準入力) からのみ読み込み、`unveil-secret` は値をそのまま標準出力へ出力します (`--query` 適用外)。SDK のシークレット操作は Vault スコープのクライアントのため、Vault ID を位置引数で受け付ける `secretOp` アダプタを介します。`apigen-api` の設定と生成コードを使い、値を引数に含めない `create-vault-secret` と、値をそのまま出力する `unveil-secret` は手書きで実装しています。testing.T ベースの[ライブ E2E シナリオ](test/e2e/secretmanager-api/)と[チュートリアル](docs/manual/tutorials/secretmanager-api.md)があります (詳細は [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md))。sakumock v0.13.0 の `secretmanager` サーバーに対し、実際の CLI と SDK を経由して全9コマンドの正常系、シークレットの upsert によるバージョン増加、unveil の素の出力と過去バージョン取得を確認しています。2026-10-30 にライブ E2E を実行し、テスト専用の KMS キーと Vault で全ステップの正常応答を確認しています。2026-11-09 に operationId 派生名 (`create-vault` など) へ移行し、E2E の sakumock 検証と命名検証を更新済み ([ADR 0074](docs/adr/0074-api-command-name-structure.md) の移行計画フェーズ 3)。同じ日に派生名でライブ再実行し、テスト専用の KMS キーと Vault での作成から Vault・シークレット・キーの削除と不在確認まで確認済み (実行記録: `test/e2e/secretmanager-api/e2e-output/secretmanager-api-20261109124952.md`)。旧名でのライブ実績は前段落の 2026-10-30 の記録を参照
+- [x] `security-control` — `security-control-api` で SDK v0.3.1 のセキュリティコントロールを操作できます。有効化状態の `project-activation-create`、`project-activation-read`、`project-activation-update`、評価ルールの `evaluation-rules-list`、`evaluation-rules-read`、`evaluation-rules-update`、自動アクションの `automated-actions-list`、`automated-actions-read`、`automated-actions-create`、`automated-actions-update`、`automated-actions-delete` を実装済みです。コマンド名は operationId から機械派生します ([ADR 0074](docs/adr/0074-api-command-name-structure.md))。`project-activation-*` の全操作と `evaluation-rules-list`/`read`、`automated-actions-list`/`read`/`delete` は `apigen-api` の設定と生成コードを使います。`evaluation-rules-update` は SDK の入力補完がルール ID ごとの union を組み立てるため手書きで、ルール ID の検証と対応しない入力の拒否を CLI で行います。`automated-actions-create`/`update` は実行先を `--notification-group-id` か `--workflow-id` のどちらか一方から組み立てるため手書きです ([ADR 0073](docs/adr/0073-security-control-command-inputs.md))。testing.T ベースの[ライブ E2E シナリオ](test/e2e/security-control-api/)（[ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md)）と[チュートリアル](docs/manual/tutorials/security-control-api.md)があります。sakumock にセキュリティコントロールのモックサーバーがないため、CLI 操作テストは [internal/cli/securitycontrol_test.go](internal/cli/securitycontrol_test.go) で `httptest` と `SAKURA_ENDPOINTS_SECURITY_CONTROL` によるエンドポイント差し替えで実装しています。2026-11-06 にライブ E2E を実行し、2026-11-09 に operationId 派生名へ移行したコマンドで再実行しました。3 シナリオで 10 末端コマンドの正常応答を確認しています。`project-activation-*` は同一値の往復での update、`evaluation-rules-*` は一時的な有効化と後片付けでの復元、`automated-actions-*` は無効状態での作成から削除後の不在確認までを確認しました。`project-activation-create` の正常系は未アクティベートのプロジェクトが必要なため未検証で、アクティベート済みプロジェクトでの 409 拒否のみ確認済みです（[#200](https://github.com/sacloud/skr/issues/200)）。対応表と実行条件は[設計文書](docs/design/security-control-api.md)に記載しています
+- [x] `service-endpoint-gateway` — `service-endpoint-gateway-api` で SDK v0.3.1 のサービスエンドポイントゲートウェイを操作できます。`seg-list`、`seg-get`、`seg-create`、`seg-update`、`seg-apply`、`seg-delete`、`seg-interface-get-interface`、`seg-status-get-power-status`、`seg-status-update-power-status`、`seg-status-delete-power-status`、`seg-status-reset-power-status` を実装しています。コマンド名は operationId から機械派生します ([ADR 0074](docs/adr/0074-api-command-name-structure.md))。操作の大半は `apigen-api` の設定と生成コードを使います。`seg-create` ([ADR 0070](docs/adr/0070-service-endpoint-gateway-create-input.md)) は個別フラグと `--request` の両経路を持つため手書きで実装しています。testing.T ベースの[ライブ E2E シナリオ](test/e2e/service-endpoint-gateway-api/)と[チュートリアル](docs/manual/tutorials/service-endpoint-gateway-api.md)があります ([ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md))。2026-10-30 にライブ E2E を実行し、`is1c` でスイッチとゲートウェイの作成、参照、一覧、設定更新と反映、電源操作、削除後の不在確認までを確認しました。2026-11-09 に operationId 派生名へ移行したコマンドで再実行しました。`seg-interface-get-interface` は openapi の `Appliance.Interfaces` 定義に interface 自身の ID フィールドがなく、`interfaceID` に指定できる値を応答から取得できないためライブ検証をしていません (詳細は[設計文書](docs/design/service-endpoint-gateway-api.md)と [#189](https://github.com/sacloud/skr/issues/189))。`is1b` はスイッチのゾーン内上限が 1/1 のため、シナリオは `is1c` を使います
+- [ ] `webaccel`
+- [ ] `workflows`
+
+## 当面対応しない API
+
+次の API は当面の実装対象から外し、未実装の対応候補とは分けて管理します。
+
+- `sshkey`
+- `sim`
+- `esme`
+- `enhanceddb`
+- `certificateauthority`
+- `authstatus`
+
+## ライブ E2E の対応状況
+
+[ADR 0058](docs/adr/0058-live-e2e-command-coverage.md) に従い、公開するすべての末端サブコマンドをライブ E2E で検証します。2026-10-23 時点で末端コマンド一覧と runner 実装を突合しました。
+
+多くの runner は対象コマンドを網羅しています。タスク3完了後の未検証は35コマンドで、apprun-dedicated-api 35 です。
+
+2026-10-23 にタスク1として `server update`、`internet update`、`internet monitor-router`、`version` の4コマンドをライブ検証しました。既存 runner へのシナリオ追加と専用 runner の新規作成、そのライブ実行を完了しています。version の E2E は 2026-10-27 に [ADR 0062](docs/adr/0062-e2e-testing-t-based-scenario.md) に従う testing.T ベースのシナリオテスト ([test/e2e/version/](test/e2e/version/)) へ移行し、同日に移行後のシナリオをライブ再実行しました。2026-10-29 に `internet monitor-router` の入力を `--request` から `--zone`、`--id`、`--start`、`--end` の個別フラグへ変更しました ([ADR 0066](docs/adr/0066-internet-monitor-router-flags.md))。フラグ経路は 2026-10-29 の internet E2E ライブ実行 (証跡 `test/e2e/internet/e2e-output/internet-api-20261029104344.md`) で正常実行を確認しました。
+
+2026-10-23 にタスク2として 25 コマンドをライブ検証しました。internet のサブネット3操作と IPv6 3操作です。eventbus-api の schedule 5操作、process-configuration update、trigger update です。apprun の Update、Version 4操作、Traffic 2操作、PacketFilter 2操作、User 2操作です。
+
+既存 runner へのシナリオ追加とそのライブ実行を完了しています。
+
+2026-10-26 にタスク3として iam-api の59コマンドのうち57コマンドをライブ検証しました。読み取り15操作、リソーススコープの書き込み27操作、アカウント全体やログインユーザーへ影響する書き込み15操作です。sso link/unlink は全組織ユーザーのログイン方法に影響するため、[#144](https://github.com/sacloud/skr/issues/144) で影響範囲の確認と設計を進めます。期待どおりの失敗を確認するステップは、証跡に `expected-error` として記録されます。2026-10-29 に iam-api の E2E を testing.T ベースのシナリオテストへ移行し、移行時に未検証だった `group update` のカバレッジを追加しました。移行後に各シナリオファイルが1つのテスト関数と1つの `helper.New` を持つ独立した9シナリオに整理し、同日に9シナリオをライブ実行して全て成功させました。2026-11-09 に [ADR 0074](docs/adr/0074-api-command-name-structure.md) のフェーズ 3 として operationId 派生名へ移行し、同じ日に派生名で9シナリオをライブ再実行して全て成功させました。
+
+網羅表、未検証コマンドの一覧、段階的なタスク、命名ルールの適用状況は[ライブ E2E の対応状況](docs/design/live-e2e-coverage.md)に記録しています。末端コマンドごとの状況は [ADR 0065](docs/adr/0065-e2e-command-coverage-baseline.md) に従い [`test/e2e/command-coverage/baseline.txt`](test/e2e/command-coverage/baseline.txt) に記録し、`make e2e-coverage` で検証します。2026-10-28 の baseline 作成時に、iam-api の旧 runner が `iam-api group update` を実行していない網羅漏れを検出し、未整備として記録しました。2026-10-29 の移行時に `group update` のカバレッジを追加し、baseline を live に更新しました。
+
+## 進め方
+
+1. SDK のサービス／API ごとに公開操作とリクエスト・レスポンス型を確認します。
+2. CLI に公開する操作、コマンド名、必須入力、ヘルプ、個別処理を明示します。全リソースに同一の CRUD 操作を仮定しません。
+3. 既存の生成器を使える操作は設定と生成コードを追加し、生成器の対象外となる固有処理は手書きで実装します。
+4. 対象パッケージのテストで SDK 呼び出し、入力、出力、エラー経路を検証し、関連ドキュメントを更新してから一覧の状況を反映します。
+5. `iaas-api` 以外の `*-api` コマンドは、OpenAPI の `operationId` から機械派生した名前で `skr <domain>-api <operation>` の形に統一し、CI で検証します。命名規則、対応表、移行計画は [API コマンド名の operationId 準拠と移行計画](docs/design/api-command-operation-id-naming.md) に記載します。2026-11-09 に全 12 ドメインの移行と baseline の廃止が完了しました。以後の新規コマンドは、対応する operation 定数を `apiPublishedOperations` に登録し、派生名で実装します。

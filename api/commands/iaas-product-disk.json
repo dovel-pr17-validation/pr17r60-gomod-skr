@@ -1,0 +1,69 @@
+{
+  "package": "diskplanapi",
+  "resource": "IaaS DiskPlan",
+  "imports": {
+    "iaas": "github.com/sacloud/sacloud-sdk-go/api/iaas",
+    "types": "github.com/sacloud/sacloud-sdk-go/api/iaas/types"
+  },
+  "operations": [
+    {
+      "name": "Find",
+      "help": "指定したゾーンで利用できるディスクプランを検索します。API 応答の Total、From、Count、DiskPlans を含む JSON を出力します。Availability と Size (サイズ、単位、利用可否) を確認できます。例: skr iaas-api product disk find --zone is1b",
+      "method": "FindWithContext",
+      "request_type": "FindRequest",
+      "response_type": "*FindResult",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (対象ゾーン名)。API の Filter、Sort、Include、Exclude は JSON で指定します。Filter の文字列値は部分一致、配列値は OR 条件です。Count と From は個別フラグです。例: --request='{\"Zone\":\"ZONE\",\"Filter\":{\"Name\":\"PLAN-NAME\"}}'。ZONE と名前は実際の値に置き換えます。",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。例: --zone is1b",
+          "required": true
+        },
+        {
+          "name": "count",
+          "field": "Count",
+          "type": "int",
+          "help": "任意: 取得件数 (整数)。"
+        },
+        {
+          "name": "from",
+          "field": "From",
+          "type": "int",
+          "help": "任意: 取得開始位置 (整数)。"
+        }
+      ]
+    },
+    {
+      "name": "Read",
+      "help": "指定したゾーンと ID のディスクプランを読み取って出力します。API の Availability と Size (サイズ、単位、利用可否) を確認できます。例: skr iaas-api product disk read --zone ZONE --id 4",
+      "method": "ReadWithContext",
+      "request_type": "ReadRequest",
+      "response_type": "*iaas.DiskPlan",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (ゾーン名)、ID (数値)。例: --request='{\"Zone\":\"ZONE\",\"ID\":4}'。ZONE と ID は実際の値に置き換えます。",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。",
+          "required": true
+        },
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int64",
+          "help": "必須: ディスクプラン ID (数値)。",
+          "required": true,
+          "conversion": "types.ID"
+        }
+      ]
+    }
+  ],
+  "wiring_target": "IaaSAPI.Product.Disk",
+  "sdk_factory": "diskplanapi.NewSDKAPI",
+  "client_factory": "iaasclient.New"
+}

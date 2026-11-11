@@ -1,0 +1,140 @@
+# skr
+
+`skr` は、さくらのクラウドを操作する CLI ツールです。
+
+> [!WARNING]
+> 🚧 **開発中バージョンです。** `skr` は現在開発中の CLI であり、コマンド、オプション、設定、入出力は変更されることがあります。利用前やアップデート前に、対象コマンドの `--help` と関連ドキュメントを確認してください。既存の `usacloud` との互換性は保証しません。
+
+## リリースの入手
+
+[GitHub Releases](https://github.com/sacloud/skr/releases) から、対象 OS・CPU 向けの ZIP ファイルと SHA-256 チェックサムを取得できます。
+バイナリは Linux（amd64、386、arm、arm64）、macOS（amd64、arm64）、Windows（amd64、386）向けに公開します。
+ZIP ファイルを展開し、`skr`（Windows では `skr.exe`）を PATH の通ったディレクトリに配置してください。
+
+コンテナイメージは `ghcr.io/sacloud/skr` で公開します。Linux の amd64 と arm64 に対応しています。
+バージョンを固定する場合は `v` 付きのリリースタグを指定してください。`latest` は最新の正式リリース、`dev` は `main` ブランチの開発版です。
+プレリリースでは `latest` を更新しません。Homebrew 向けの配布は行いません。
+
+```console
+$ docker run --rm ghcr.io/sacloud/skr:latest --help
+```
+
+## コマンド
+
+現在利用できる主なコマンドは次のとおりです。
+
+| コマンド | 操作できる API |
+| --- | --- |
+| `skr iaas-api disk` | ディスクの検索、参照、作成、更新、削除 |
+| `skr iaas-api product disk` | ディスクプランの検索、参照 |
+| `skr iaas-api product internet` | インターネットプランの検索、参照 |
+| `skr iaas-api product license` | ライセンス情報の検索 |
+| `skr iaas-api product privatehost` | 専有ホストプランの検索、参照 |
+| `skr iaas-api icon` | ユーザー作成アイコンの検索、参照、作成、更新、削除 |
+| `skr iaas-api region` | リージョン情報の検索、参照 |
+| `skr iaas-api server` | サーバの検索、参照、作成、更新、削除 |
+| `skr iaas-api product server` | サーバプランの検索、参照 |
+| `skr iaas-api service-class` | 指定したゾーンのサービスクラスの検索 |
+| `skr iaas-api switch` | スイッチの検索、参照、作成、更新、削除 |
+| `skr iaas-api zone` | ゾーン一覧の取得 |
+| `skr gslb-api` | GSLB の検索、参照、作成、更新、削除 |
+| `skr simplemq-api` | キューの管理、メッセージ数の確認、キュー内メッセージの削除、メッセージの送信、受信、タイムアウト延長、削除 |
+| `skr simple-notification-api` | 通知先、通知先グループ、ルーティング設定の管理、送信可否ステータスの確認、通知送信、順序変更、通知履歴の参照 |
+| `skr eventbus-api` | 実行設定、スケジュール、トリガーの管理、実行先サービス用シークレットの登録 |
+| `skr apprun-dedicated-api` | AppRun 専有型のクラスタ、アプリケーション、ワーカノードなどの管理 |
+| `skr apprun-api` | AppRun 共用型のアプリケーション、バージョン、トラフィック分散、パケットフィルター、ユーザー情報の管理 |
+| `skr container-registry-api registry` | コンテナレジストリと認証ユーザーの管理 |
+| `skr object-storage-api` | サイト、サイトアカウント、バケット、パーミッションの管理 |
+| `skr iam-api` | IAM ユーザー、グループ、フォルダ、プロジェクト、組織、ポリシーバインディング、認証設定、API キー、サービスプリンシパル、SSO、SCIM、2 要素認証の管理 |
+| `skr security-control-api` | セキュリティコントロールの有効化、評価ルールと自動アクションの管理 |
+| `skr http <url>` | SDK の認証情報を使った任意の HTTPS エンドポイントへのリクエスト |
+| `skr config current` | 現在選択されているプロファイル名の確認 |
+
+コマンドの一覧と使い方は、`skr --help` または各コマンドの `--help` で確認できます。
+
+```console
+$ skr --help
+$ skr iaas-api disk --help
+$ skr iaas-api icon --help
+$ skr iaas-api region --help
+$ skr iaas-api product --help
+$ skr iaas-api product disk --help
+$ skr iaas-api product internet --help
+$ skr iaas-api product license --help
+$ skr iaas-api product privatehost --help
+$ skr iaas-api product server --help
+$ skr iaas-api service-class --help
+$ skr iaas-api switch --help
+$ skr gslb-api --help
+$ skr simplemq-api --help
+$ skr simple-notification-api --help
+$ skr eventbus-api --help
+$ skr apprun-dedicated-api --help
+$ skr apprun-api --help
+$ skr container-registry-api --help
+$ skr object-storage-api --help
+$ skr http --help
+```
+
+オブジェクトストレージの管理 API では、サイトやバケット、アクセス権限を管理します。バケットの作成後は基本料金が発生します。S3 互換 API によるオブジェクト本体のアップロード／ダウンロードは別の操作です。利用手順は[オブジェクトストレージ API チュートリアル](docs/manual/tutorials/object-storage-api.md)を参照してください。
+
+サーバの作成では、対象ゾーンで利用できる CPU とメモリの組み合わせを指定します。タグはカンマ区切りの `--tags` フラグで指定できます。その他の配列を含む設定には JSON の `--request` を使います。`--request` と個別フラグは併用できません。作成前に対象環境と料金を確認してください（[サーバの作成と削除](https://manual.sakura.ad.jp/cloud/server/create-delete.html)）。
+
+```console
+$ skr iaas-api server create --zone ZONE --name SERVER-NAME --cpu 1 --memory-gb 1 --tags production,web
+```
+
+サーバプランの検索と参照は読み取り専用です。CPU、メモリ、GPU、利用可否などを対象ゾーンごとに確認できます。詳細は[ServerPlan API チュートリアル](docs/manual/tutorials/iaas-api/server-plan.md)を参照してください。
+
+インターネットプランはゾーンごとに検索・参照でき、帯域幅と利用可否を確認できます。[InternetPlan API チュートリアル](docs/manual/tutorials/iaas-api/internet-plan.md)を参照してください。ライセンス情報は `skr iaas-api product license find` で検索します。専有ホストプランはゾーンごとに検索・参照でき、CPU、メモリ、利用可否を確認できます。これらの手順は読み取り専用で、専有ホストの契約やネットワーク設定の変更は行いません。詳細は[LicenseInfo API チュートリアル](docs/manual/tutorials/iaas-api/license-info.md)と[PrivateHostPlan API チュートリアル](docs/manual/tutorials/iaas-api/private-host-plan.md)を参照してください。
+
+Disk の作成では `--zone`、`--name`、`--disk-plan-id`、`--connection`、`--size-gb` を指定します。更新では `--zone` と `--id` に加えて、変更する値だけをフラグで指定できます。省略した値は変更されません。複雑な値は `--request` にインライン JSON または `@path.json` で渡せますが、個別フラグとは併用できません。詳しくは[Disk API チュートリアル](docs/manual/tutorials/iaas-api/disk.md)を参照してください。
+
+```console
+$ skr iaas-api disk create --zone ZONE --name DISK-NAME --disk-plan-id 4 --connection virtio --size-gb 20 --tags production,web
+$ skr iaas-api disk update --zone ZONE --id DISK-ID --name UPDATED-DISK-NAME
+```
+
+```console
+$ skr iaas-api icon create --name ICON-NAME --image-file ./icon.png --tags tutorial,managed
+```
+
+## 認証
+
+サービスプリンシパルキーを基本の認証方式としています。API キー認証も引き続き利用できます。プロファイルの設定方法は[プロファイルの管理](docs/manual/c0nfig.md)、API キーの設定方法は[API キーを使う場合](docs/manual/c0nfig.md#api-キーを使う場合)を参照してください。
+
+コマンドによっては API キーやパスワードなど、追加の認証情報が必要です。指定方法は各コマンドの `--help` と関連ドキュメントを確認してください。
+
+## 出力
+
+API コマンドの結果は JSON で出力します。
+`--query` に jq 式を指定すると、API の結果を加工できます。詳しくは[API 出力の jq 加工ガイド](docs/manual/query.md)を参照してください。
+
+`--trace` では HTTP リクエストとレスポンスを出力します。認証情報などが含まれる場合があるため、取り扱いに注意してください。
+`skr http` の使い方は[HTTP リクエストのガイド](docs/manual/http-request.md)を参照してください。
+
+## usacloud との違い
+
+`skr` は、AI からも扱いやすい CLI を目指し、コマンド体系や入出力を一貫した形に再設計しています。そのため、従来の `usacloud` との互換性は保証しません。移行時に既存のスクリプトや設定の変更が必要になる場合があります。利用前に各コマンドの `--help` と関連ドキュメントを確認してください。
+
+## 利用者向けドキュメント
+
+[利用者向けドキュメント一覧](docs/manual/README.md)から、チュートリアルや共通機能の解説を確認できます。
+HTML 版は [GitHub Pages](https://sacloud.github.io/skr/) で公開しています。CLI の全サブコマンドのヘルプも一覧で確認できます。
+
+## 開発
+
+リポジトリのルートで次のコマンドを実行します。
+
+```console
+$ make build
+$ ./skr --help
+$ make test
+```
+
+リリースは tagpr のリリース PR を `main` にマージすると開始します。
+GoReleaser によるバイナリ公開とコンテナイメージ公開の構成は、[リリース設計](docs/design/release.md)を参照してください。
+
+## ライセンス
+
+このプロジェクトは [Apache License 2.0](LICENSE) のもとで公開されています。

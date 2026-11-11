@@ -1,0 +1,122 @@
+{
+  "package": "simplemqapi",
+  "resource": "SimpleMQ queue",
+  "command_prefix": "Queue",
+  "imports": {
+    "queue": "github.com/sacloud/sacloud-sdk-go/api/simplemq/apis/v1/queue"
+  },
+  "operations": [
+    {
+      "name": "List",
+      "help": "キューを一覧表示します。",
+      "method": "List",
+      "response_type": "[]queue.CommonServiceItem",
+      "command_name": "list-queues"
+    },
+    {
+      "name": "Read",
+      "help": "ID を指定してキューを読み取ります。",
+      "method": "Read",
+      "response_type": "*queue.CommonServiceItem",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "list-queues の出力にあるキュー ID。"
+        }
+      ],
+      "command_name": "read-queue"
+    },
+    {
+      "name": "Create",
+      "help": "キューを作成します。作成後、rotate-api-key でメッセージ API 用のキーを発行してください。",
+      "method": "Create",
+      "request_type": "queue.CreateQueueRequest",
+      "request_by_value": true,
+      "response_type": "*queue.CommonServiceItem",
+      "handwritten": true,
+      "command_name": "create-queue"
+    },
+    {
+      "name": "Config",
+      "help": "キューの設定を更新します。--visibility-timeout-seconds と --expire-seconds を指定するか、--request JSON を指定してください。",
+      "method": "Config",
+      "request_type": "queue.ConfigQueueRequest",
+      "request_by_value": true,
+      "response_type": "*queue.CommonServiceItem",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "設定を変更するキュー ID。"
+        }
+      ],
+      "handwritten": true,
+      "command_name": "update-queue"
+    },
+    {
+      "name": "Delete",
+      "help": "ID を指定してキューを削除します。",
+      "method": "Delete",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "削除するキュー ID。"
+        }
+      ],
+      "command_name": "delete-queue"
+    },
+    {
+      "name": "CountMessages",
+      "help": "キュー内のメッセージ数を取得します。",
+      "method": "CountMessages",
+      "response_type": "int",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "メッセージ数を取得するキュー ID。"
+        }
+      ],
+      "handwritten": true,
+      "command_name": "read-message-count"
+    },
+    {
+      "name": "RotateAPIKey",
+      "help": "メッセージ API キーを発行または再発行し、結果を出力します。APIKey は認証情報として安全に扱ってください。",
+      "method": "RotateAPIKey",
+      "response_type": "string",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "キーを発行するキュー ID。"
+        }
+      ],
+      "handwritten": true,
+      "command_name": "rotate-api-key"
+    },
+    {
+      "name": "ClearMessages",
+      "help": "キュー内のメッセージをすべて削除します。",
+      "method": "ClearMessages",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "string",
+          "help": "メッセージをすべて削除するキュー ID。"
+        }
+      ],
+      "command_name": "clear-queue"
+    }
+  ],
+  "wiring_target": "SimpleMQAPI.Queue",
+  "sdk_factory": "simplemqapi.NewQueueAPI"
+}

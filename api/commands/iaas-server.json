@@ -1,0 +1,349 @@
+{
+  "package": "serverapi",
+  "resource": "IaaS Server",
+  "imports": {
+    "iaas": "github.com/sacloud/sacloud-sdk-go/api/iaas",
+    "types": "github.com/sacloud/sacloud-sdk-go/api/iaas/types"
+  },
+  "operations": [
+    {
+      "name": "Find",
+      "help": "サーバを指定したゾーンで検索して出力します。例: skr iaas-api server find --zone tk1v",
+      "method": "FindWithContext",
+      "request_type": "FindRequest",
+      "response_type": "[]*iaas.Server",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (単一ゾーン名)。任意: 単一名の部分一致検索は --name、複数名の Names と Sort は JSON で指定します。Tags は --tags のカンマ区切りまたは JSON 配列、Count と From は個別フラグでも指定できます。例: skr iaas-api server find --zone is1b --name example",
+      "flags": [
+        {
+          "name": "name",
+          "field": "Names",
+          "type": "string",
+          "singleton": true,
+          "help": "任意: 部分一致で検索する単一の名前。カンマを含めて1つの名前として扱います。API の名前検索条件に対応し、JSON では Names 配列で指定します。"
+        },
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。例: --zone tk1v",
+          "required": true
+        },
+        {
+          "name": "tags",
+          "field": "Tags",
+          "type": "[]string",
+          "help": "任意: タグの配列。カンマ区切りで指定します。API の Tags フィールドに対応します。",
+          "conversion": "types.Tags",
+          "separator": ","
+        },
+        {
+          "name": "count",
+          "field": "Count",
+          "type": "int",
+          "help": "任意: 取得件数 (整数)。"
+        },
+        {
+          "name": "from",
+          "field": "From",
+          "type": "int",
+          "help": "任意: 取得開始位置 (整数)。"
+        }
+      ]
+    },
+    {
+      "name": "Read",
+      "help": "サーバを読み取って出力します。例: skr iaas-api server read --zone ZONE --id 123456789012",
+      "method": "ReadWithContext",
+      "request_type": "ReadRequest",
+      "response_type": "*iaas.Server",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (ゾーン名)、ID (作成結果の数値)。例: --request='{\"Zone\":\"ZONE\",\"ID\":123456789012}'。ID は実際の値に置き換えます。",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。",
+          "required": true
+        },
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int64",
+          "help": "必須: サーバ ID (数値)。",
+          "required": true,
+          "conversion": "types.ID"
+        }
+      ]
+    },
+    {
+      "name": "Create",
+      "help": "サーバを作成して出力します。基本項目はフラグ、複雑な構成は --request JSON で指定します。ディスクと NIC は --disk と --nic を繰り返して指定できます。作成したディスクの情報を応答の Disks に出力します。API 応答にディスクが含まれない場合も、ディスク作成の応答で補完します。例: skr iaas-api server create --zone ZONE --name example --cpu 1 --memory-gb 1 --disk 'archive-id=ARCHIVE-ID,plan-id=DISK-PLAN-ID,size-gb=20' --nic 'upstream=shared'",
+      "method": "CreateWithContext",
+      "request_type": "CreateRequest",
+      "response_type": "*iaas.Server",
+      "validate_zone": true,
+      "request_transform": "TransformCreateRequest",
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (単一ゾーン名)、Name、CPU、MemoryGB。CPU と MemoryGB は対象ゾーンで利用可能なプランを指定します。Tags は文字列配列です。Disks、NetworkInterfaces などの複雑な構成や、その他の API フィールドも指定できます。Disks の SourceDiskID、SourceArchiveID、EncryptionAlgorithm、KMSKeyID と、NetworkInterfaces の PacketFilterID も JSON で指定できます。PacketFilterID は作成した NIC に適用します。BootAfterCreate=true の場合は作成後に起動します。例: --request='{\"Zone\":\"is1b\",\"Name\":\"example\",\"CPU\":1,\"MemoryGB\":1,\"Tags\":[\"tutorial\"]}'",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 作成先のゾーン名。",
+          "required": true
+        },
+        {
+          "name": "name",
+          "field": "Name",
+          "type": "string",
+          "help": "必須: サーバ名。",
+          "required": true
+        },
+        {
+          "name": "cpu",
+          "field": "CPU",
+          "type": "int",
+          "help": "必須: 仮想コア数。MemoryGB と対象ゾーンで利用可能なプランの組み合わせを指定してください。",
+          "required": true
+        },
+        {
+          "name": "memory-gb",
+          "field": "MemoryGB",
+          "type": "int",
+          "help": "必須: メモリ容量 (GB)。CPU と対象ゾーンで利用可能なプランの組み合わせを指定してください。",
+          "required": true
+        },
+        {
+          "name": "tags",
+          "field": "Tags",
+          "type": "[]string",
+          "help": "任意: タグの配列。カンマ区切りで指定します。API の Tags フィールドに対応します。",
+          "conversion": "types.Tags",
+          "separator": ","
+        },
+        {
+          "name": "description",
+          "field": "Description",
+          "type": "string",
+          "help": "任意: サーバの説明 (最大512文字)。"
+        },
+        {
+          "name": "icon-id",
+          "field": "IconID",
+          "type": "int64",
+          "conversion": "types.ID",
+          "help": "任意: アイコンの ID (数値)。"
+        },
+        {
+          "name": "gpu",
+          "field": "GPU",
+          "type": "int",
+          "help": "任意: GPU 数。"
+        },
+        {
+          "name": "gpu-model",
+          "field": "GPUModel",
+          "type": "string",
+          "help": "任意: GPU モデル。"
+        },
+        {
+          "name": "cpu-model",
+          "field": "CPUModel",
+          "type": "string",
+          "help": "任意: CPU モデル。"
+        },
+        {
+          "name": "commitment",
+          "field": "Commitment",
+          "type": "string",
+          "conversion": "types.ECommitment",
+          "help": "任意: CPU プランのコミットメント。standard または dedicatedcpu を指定します。"
+        },
+        {
+          "name": "generation",
+          "field": "Generation",
+          "type": "int",
+          "conversion": "types.EPlanGeneration",
+          "help": "任意: サーバプラン世代 (0: 既定、100、200)。"
+        },
+        {
+          "name": "confidential-vm",
+          "field": "ConfidentialVM",
+          "type": "bool",
+          "help": "任意: Confidential VM プランを有効にします。利用条件と提供ゾーンを確認してください。"
+        },
+        {
+          "name": "interface-driver",
+          "field": "InterfaceDriver",
+          "type": "string",
+          "conversion": "types.EInterfaceDriver",
+          "help": "任意: 仮想 NIC ドライバ。virtio または e1000 を指定します。"
+        },
+        {
+          "name": "boot-after-create",
+          "field": "BootAfterCreate",
+          "type": "bool",
+          "help": "任意: true の場合、作成後にサーバを起動します。cloud-init user-data を使う場合は省略してください。"
+        },
+        {
+          "name": "private-host-id",
+          "field": "PrivateHostID",
+          "type": "int64",
+          "conversion": "types.ID",
+          "help": "任意: 接続先の専有ホスト ID (数値)。"
+        }
+      ],
+      "repeated_flags": [
+        {
+          "name": "disk",
+          "field": "Disks",
+          "help": "任意: ディスク1個を key=value のカンマ区切りで指定します。必須キー: plan-id、size-gb (GB)。任意キー: archive-id。すべて正の整数です。例: --disk 'archive-id=123,plan-id=4,size-gb=20'。繰り返し指定でき、指定順に API の Disks 配列を組み立てます。接続は virtio です。archive-id 省略時は空のディスクを作成します。"
+        },
+        {
+          "name": "nic",
+          "field": "NICs",
+          "help": "任意: NIC 1個を upstream=shared、upstream=disconnected、または upstream=SWITCH_ID で指定します。共有セグメント、未接続、指定スイッチへの接続です。SWITCH_ID は正の整数です。繰り返し指定でき、指定順に API の NetworkInterfaces 配列を組み立てます。shared は先頭の NIC にだけ指定できます。ルータ＋スイッチに接続する場合も先頭の NIC を指定してください。OS の IP アドレスは設定しません。"
+        }
+      ]
+    },
+    {
+      "name": "Boot",
+      "help": "サーバを起動します。cloud-init の user-data は任意で、--user-data @path.yaml または --user-data - で指定します。例: skr iaas-api server boot --zone ZONE --id 123456789012",
+      "method": "BootWithContext",
+      "request_type": "BootRequest",
+      "handwritten": true
+    },
+    {
+      "name": "Update",
+      "help": "サーバの API 更新リクエストを送信して出力します。更新リクエストで省略した項目は現在値を維持します。CPU または MemoryGB の指定はプラン変更です。プラン変更後は新しいサーバ ID を確認してください。例: skr iaas-api server update --zone ZONE --id 123456789012 --name updated",
+      "method": "UpdateWithContext",
+      "request_type": "UpdateRequest",
+      "response_type": "*iaas.Server",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (ゾーン名)、ID (数値)。任意フラグは Name、Description、Tags (--tags でカンマ区切り)、CPU、MemoryGB、GPU、GPUModel、CPUModel です。更新リクエストで省略した項目は現在値を維持します。JSON 経路では Tags を文字列配列で指定できます。IconID、PrivateHostID、InterfaceDriver など、フラグのない API フィールドは JSON で指定します。CPU、MemoryGB、GPU、GPUModel、CPUModel の指定はプラン変更です。例: skr iaas-api server update --zone ZONE --id 123456789012 --tags production,web。ID は実際の値に置き換えます。",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。",
+          "required": true
+        },
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int64",
+          "help": "必須: 更新対象のサーバ ID (数値)。",
+          "required": true,
+          "conversion": "types.ID"
+        },
+        {
+          "name": "tags",
+          "field": "Tags",
+          "type": "[]string",
+          "help": "任意: 更新リクエストのタグ配列。カンマ区切りで指定します。",
+          "pointer": true,
+          "conversion": "types.Tags",
+          "separator": ","
+        },
+        {
+          "name": "name",
+          "field": "Name",
+          "type": "string",
+          "help": "任意: 更新リクエストのサーバ名。",
+          "pointer": true
+        },
+        {
+          "name": "description",
+          "field": "Description",
+          "type": "string",
+          "help": "任意: 更新リクエストの説明。",
+          "pointer": true
+        },
+        {
+          "name": "cpu",
+          "field": "CPU",
+          "type": "int",
+          "help": "任意: 仮想コア数。MemoryGB と対象ゾーンで利用可能なプランの組み合わせを指定してください。指定するとプラン変更になります。",
+          "pointer": true
+        },
+        {
+          "name": "memory-gb",
+          "field": "MemoryGB",
+          "type": "int",
+          "help": "任意: メモリ容量 (GB)。CPU と対象ゾーンで利用可能なプランの組み合わせを指定してください。指定するとプラン変更になります。",
+          "pointer": true
+        },
+        {
+          "name": "gpu",
+          "field": "GPU",
+          "type": "int",
+          "help": "任意: プラン変更後の GPU 数。",
+          "pointer": true
+        },
+        {
+          "name": "gpu-model",
+          "field": "GPUModel",
+          "type": "string",
+          "help": "任意: プラン変更後の GPU モデル。",
+          "pointer": true
+        },
+        {
+          "name": "cpu-model",
+          "field": "CPUModel",
+          "type": "string",
+          "help": "任意: プラン変更後の CPU モデル。",
+          "pointer": true
+        }
+      ]
+    },
+    {
+      "name": "Delete",
+      "help": "サーバを削除します。成功時は出力しません。ディスクも削除する場合は --with-disks を指定します。例: skr iaas-api server delete --zone ZONE --id 123456789012",
+      "method": "DeleteWithContext",
+      "request_type": "DeleteRequest",
+      "validate_zone": true,
+      "request_help": "個別フラグと併用不可。JSON オブジェクトを直接または @path.json で指定します。必須: Zone (ゾーン名)、ID (数値)。任意: WithDisks (true の場合は接続中のディスクも削除)、FailIfNotFound (true の場合は対象がないとエラー。省略時はエラーにしない)、Force (起動中サーバを強制停止してから削除)。ディスクを残す場合は WithDisks を省略または false にします。例: --request='{\"Zone\":\"ZONE\",\"ID\":123456789012,\"FailIfNotFound\":true}'。ID は実際の値に置き換えます。",
+      "flags": [
+        {
+          "name": "zone",
+          "field": "Zone",
+          "type": "string",
+          "help": "必須: 対象ゾーン名。",
+          "required": true
+        },
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int64",
+          "help": "必須: 削除対象のサーバ ID (数値)。",
+          "required": true,
+          "conversion": "types.ID"
+        },
+        {
+          "name": "with-disks",
+          "field": "WithDisks",
+          "type": "bool",
+          "help": "任意: true の場合、接続中のディスクも削除します。対象を確認してから指定してください。"
+        },
+        {
+          "name": "fail-if-not-found",
+          "field": "FailIfNotFound",
+          "type": "bool",
+          "help": "任意: 対象サーバが見つからない場合にエラーにします。"
+        },
+        {
+          "name": "force",
+          "field": "Force",
+          "type": "bool",
+          "help": "任意: 起動中の場合に強制停止してから削除します。"
+        }
+      ]
+    }
+  ],
+  "wiring_target": "IaaSAPI.Server",
+  "sdk_factory": "serverapi.NewAPI",
+  "client_factory": "iaasclient.New"
+}

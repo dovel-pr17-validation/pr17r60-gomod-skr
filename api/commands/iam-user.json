@@ -1,0 +1,117 @@
+{
+  "package": "iamapi",
+  "resource": "IAM user",
+  "command_prefix": "User",
+  "imports": {
+    "user": "github.com/sacloud/sacloud-sdk-go/api/iam/apis/user",
+    "v1": "github.com/sacloud/sacloud-sdk-go/api/iam/apis/v1"
+  },
+  "operations": [
+    {
+      "name": "List",
+      "help": "IAM ユーザーを一覧表示します。--page、--per-page、--ordering で取得範囲と並び順を指定できます。",
+      "method": "List",
+      "request_type": "user.ListParams",
+      "request_by_value": true,
+      "response_type": "[]v1.User",
+      "handwritten": true,
+      "command_name": "list-users"
+    },
+    {
+      "name": "Create",
+      "help": "IAM ユーザーを作成します。パスワードは --password-file でファイルまたは標準入力から指定します。",
+      "method": "Create",
+      "request_type": "user.CreateParams",
+      "request_by_value": true,
+      "response_type": "*v1.User",
+      "handwritten": true,
+      "command_name": "create-user"
+    },
+    {
+      "name": "Read",
+      "help": "ID を指定して IAM ユーザーを読み取ります。",
+      "method": "Read",
+      "response_type": "*v1.User",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int",
+          "help": "list の出力にあるユーザー ID。"
+        }
+      ],
+      "command_name": "read-user"
+    },
+    {
+      "name": "Update",
+      "help": "IAM ユーザーの名前、説明、パスワードを更新します。名前と説明は必須です。パスワードは --password-file を指定した場合のみ変更します。",
+      "method": "Update",
+      "request_type": "user.UpdateParams",
+      "request_by_value": true,
+      "response_type": "*v1.User",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int",
+          "help": "更新するユーザー ID。"
+        }
+      ],
+      "handwritten": true,
+      "command_name": "update-user"
+    },
+    {
+      "name": "Delete",
+      "help": "ID を指定して IAM ユーザーを削除します。",
+      "method": "Delete",
+      "arguments": [
+        {
+          "name": "id",
+          "field": "ID",
+          "type": "int",
+          "help": "削除するユーザー ID。"
+        }
+      ],
+      "command_name": "delete-user"
+    },
+    {
+      "name": "RegisterEmail",
+      "help": "ユーザーのメールアドレスを登録します。作成時の --email は SSO の外部 IdP ログインで使うメールアドレスで、この操作とは別の項目です。",
+      "method": "RegisterEmail",
+      "arguments": [
+        {
+          "name": "user-id",
+          "field": "UserID",
+          "type": "int",
+          "help": "メールアドレスを登録するユーザー ID。"
+        },
+        {
+          "name": "email",
+          "field": "Email",
+          "type": "string",
+          "flag": true,
+          "required": true,
+          "help": "必須: 登録するメールアドレス。例: user@example.com"
+        }
+      ],
+      "command_name": "register-email"
+    },
+    {
+      "name": "UnregisterEmail",
+      "help": "ユーザーのメールアドレスの登録を解除します。",
+      "method": "UnregisterEmail",
+      "arguments": [
+        {
+          "name": "user-id",
+          "field": "UserID",
+          "type": "int",
+          "help": "メールアドレスの登録を解除するユーザー ID。"
+        }
+      ],
+      "command_name": "unregister-email"
+    }
+  ],
+  "wiring_target": "IAMAPI.User",
+  "sdk_factory": "iamapi.NewUserAPI",
+  "decoder": "iamapi.DecodeRequest"
+}

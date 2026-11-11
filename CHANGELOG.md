@@ -1,0 +1,218 @@
+# Changelog
+
+## [v0.1.0](https://github.com/sacloud/skr/compare/v0.0.7...v0.1.0) - 2026-11-10
+
+### 🚀 Changes
+- API コマンド名を operationId から機械派生する方針を ADR と design doc に記録する by @tokuhirom in https://github.com/sacloud/skr/pull/205
+- operationId 機械派生の移行フェーズ 1 として CI と baseline を導入する by @tokuhirom in https://github.com/sacloud/skr/pull/207
+- simplemq-api のコマンド名を operationId 派生名に移行する (フェーズ 2) by @tokuhirom in https://github.com/sacloud/skr/pull/208
+- simplemq-api の operationId 派生名でライブ E2E を再実行した結果を記録する by @tokuhirom in https://github.com/sacloud/skr/pull/209
+- kms-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/210
+- kms-api の operationId 派生名でライブ E2E を再実行した結果を記録する by @tokuhirom in https://github.com/sacloud/skr/pull/211
+- secretmanager-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/212
+- secretmanager-api の operationId 派生名でライブ E2E を再実行した結果を記録する by @tokuhirom in https://github.com/sacloud/skr/pull/213
+- CI の不要なツール準備を削除 by @tokuhirom in https://github.com/sacloud/skr/pull/216
+- security-control-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/215
+- service-endpoint-gateway-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/217
+- networking-suite-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/218
+- eventbus-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/219
+- apprun-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/220
+- simple-notification-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/221
+- object-storage-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/222
+- apprun-dedicated-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/223
+- iam-api のコマンド名を operationId 派生名に移行する (フェーズ 3) by @tokuhirom in https://github.com/sacloud/skr/pull/224
+- ADR 0074 の移行を完了し baseline 機構を廃止する by @tokuhirom in https://github.com/sacloud/skr/pull/225
+### 📦 Dependency Updates
+- ci: bump Songmu/tagpr from 1.21.4 to 1.22.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/226
+
+## [v0.0.7](https://github.com/sacloud/skr/compare/v0.0.6...v0.0.7) - 2026-11-06
+
+### 🚀 Changes
+- sacloud-sdk-go を v0.5.0 に更新する by @tokuhirom in https://github.com/sacloud/skr/pull/203
+
+## [v0.0.6](https://github.com/sacloud/skr/compare/v0.0.5...v0.0.6) - 2026-11-06
+
+### 🚀 Changes
+- kms-api コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/184
+- object-storage 暗号化シナリオをテスト専用 KMS キーで実行 (#141) by @tokuhirom in https://github.com/sacloud/skr/pull/186
+- secretmanager 対応を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/187
+- Server チュートリアルのアーカイブとディスクプラン選択を簡潔にする by @tokuhirom in https://github.com/sacloud/skr/pull/188
+- service-endpoint-gateway-api のコマンド、ライブ E2E とチュートリアルを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/190
+- iaas-api database コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/191
+- iaas-api database を api 層経由に変更し review 指摘に対応 by @tokuhirom in https://github.com/sacloud/skr/pull/192
+- iaas-api を API 層経由に移行する by @tokuhirom in https://github.com/sacloud/skr/pull/196
+- proxylb-api コマンドグループを追加する by @tokuhirom in https://github.com/sacloud/skr/pull/198
+- security-control-api コマンドグループを追加する by @tokuhirom in https://github.com/sacloud/skr/pull/201
+### 📦 Dependency Updates
+- go: bump github.com/itchyny/gojq from 0.12.19 to 0.12.20 by @dependabot[bot] in https://github.com/sacloud/skr/pull/197
+- go: bump github.com/yuin/goldmark from 1.8.6 to 1.8.7 by @dependabot[bot] in https://github.com/sacloud/skr/pull/195
+- go: bump github.com/alecthomas/kong from 1.16.1 to 1.17.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/194
+
+## [v0.0.5](https://github.com/sacloud/skr/compare/v0.0.4...v0.0.5) - 2026-10-30
+
+### 🚀 Changes
+- AppRun 共用型 API コマンドとライブ E2E を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/140
+- Object Storage 管理 API・チュートリアル・全サブコマンドの E2E を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/143
+- ライブ E2E のコマンド網羅状況の整備と iam-api・タスク1/2 のライブ検証 by @tokuhirom in https://github.com/sacloud/skr/pull/145
+- AGENTS.md にコードコメントを日本語とするルールを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/146
+- E2E 証跡レポートのステップ説明を呼び出し元に記述し、シナリオ情報を Recorder 生成時に渡す by @tokuhirom in https://github.com/sacloud/skr/pull/147
+- コメントを日本語化 by @tokuhirom in https://github.com/sacloud/skr/pull/148
+- E2E の SSH 待機とログイン確認を test/e2e/internal/sshrun に集約し、待機の要約を 1 件記録する by @tokuhirom in https://github.com/sacloud/skr/pull/149
+- E2e runner shared library by @tokuhirom in https://github.com/sacloud/skr/pull/150
+- E2e scenario migration by @tokuhirom in https://github.com/sacloud/skr/pull/151
+- internal/saclient/client_test.go を testify に統一した by @tokuhirom in https://github.com/sacloud/skr/pull/152
+- test/e2e/version を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/153
+- test/e2e/switch を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/154
+- test/e2e/simplemq を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/155
+- test/e2e/simple-notification を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/156
+- test/e2e/serviceclass を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/157
+- test/e2e/serverplan を testing.T ベースのシナリオテストに作り直した by @tokuhirom in https://github.com/sacloud/skr/pull/158
+- test/e2e/server の偽の操作による単体テストを廃止し、テストファイルを整理した by @tokuhirom in https://github.com/sacloud/skr/pull/159
+- E2E コマンド網羅を baseline で管理する仕組みを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/160
+- region の E2E を testing.T ベースのシナリオテストへ移行 by @tokuhirom in https://github.com/sacloud/skr/pull/161
+- object-storage-api のライブ E2E を testing.T ベースのシナリオに移行 by @tokuhirom in https://github.com/sacloud/skr/pull/163
+- networking-suite のライブ E2E を testing.T ベースのシナリオに移行 by @tokuhirom in https://github.com/sacloud/skr/pull/164
+- http のライブ E2E を testing.T ベースのシナリオに移行 by @tokuhirom in https://github.com/sacloud/skr/pull/165
+- packetfilter の E2E を testing.T ベースのシナリオテストへ移行 by @tokuhirom in https://github.com/sacloud/skr/pull/162
+- iam-api の E2E を testing.T ベースのシナリオテストへ移行 by @tokuhirom in https://github.com/sacloud/skr/pull/166
+- iaas-product-plans の E2E を testing.T ベースのシナリオテストへ移行する by @tokuhirom in https://github.com/sacloud/skr/pull/167
+- GSLB E2E を testing.T ベースのシナリオへ移行し、Server 共通処理を helper に整理 by @tokuhirom in https://github.com/sacloud/skr/pull/168
+- icon の E2E を testing.T ベースのシナリオテストへ移行する by @tokuhirom in https://github.com/sacloud/skr/pull/169
+- internet の E2E を testing.T ベースのシナリオテストへ移行する by @tokuhirom in https://github.com/sacloud/skr/pull/170
+- iaas-lookup の E2E をコマンド名ごとのシナリオテストへ移行・分割する by @tokuhirom in https://github.com/sacloud/skr/pull/171
+- 使われていない test/e2e/internal/evidence と sshrun を削除する by @tokuhirom in https://github.com/sacloud/skr/pull/172
+- 生成型名をモードと操作名から導出する by @tokuhirom in https://github.com/sacloud/skr/pull/173
+- internal/cli の配線コードを設定から生成する (ADR 0068) by @tokuhirom in https://github.com/sacloud/skr/pull/174
+- simple-notification ドメインを標準形に再設計して配線を生成する by @tokuhirom in https://github.com/sacloud/skr/pull/175
+- apprun ドメインの配線を設定から生成する by @tokuhirom in https://github.com/sacloud/skr/pull/176
+- iam-user-2fa の配線を設定から生成する by @tokuhirom in https://github.com/sacloud/skr/pull/179
+- ipv6net、ipv6addr、ipaddress の IaaS API コマンドを追加する by @tokuhirom in https://github.com/sacloud/skr/pull/181
+- IPv6 と逆引き設定のマニュアルへのリンクを修正する by @tokuhirom in https://github.com/sacloud/skr/pull/182
+- ipv6addr・ipaddress の変更系コマンドのライブ E2E を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/183
+### 📦 Dependency Updates
+- ci: bump Songmu/tagpr from 1.21.2 to 1.21.3 by @dependabot[bot] in https://github.com/sacloud/skr/pull/138
+- ci: bump Songmu/tagpr from 1.21.3 to 1.21.4 by @dependabot[bot] in https://github.com/sacloud/skr/pull/178
+- ci: bump docker/login-action from 4.6.0 to 4.7.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/177
+
+## [v0.0.4](https://github.com/sacloud/skr/compare/v0.0.3...v0.0.4) - 2026-10-22
+
+### 🚀 Changes
+- GSLB API コマンドと ping 監視チュートリアルを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/123
+- API 開発とライブ E2E の安全確認を明確化する by @tokuhirom in https://github.com/sacloud/skr/pull/125
+- IaaS Region API コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/126
+- 当面対応しない API を PLAN.md で明示 by @tokuhirom in https://github.com/sacloud/skr/pull/127
+- IaaS ServiceClass API を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/128
+- Go 1.27.3 に更新 by @tokuhirom in https://github.com/sacloud/skr/pull/133
+- Potential fix for code scanning alert no. 1: Workflow does not contain permissions by @tokuhirom in https://github.com/sacloud/skr/pull/134
+- IaaS プラン API を route に沿って追加 by @tokuhirom in https://github.com/sacloud/skr/pull/135
+- Simple Notification API コマンドとライブ E2E を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/131
+
+## [v0.0.3](https://github.com/sacloud/skr/compare/v0.0.2...v0.0.3) - 2026-10-19
+
+### 🚀 Changes
+- API コマンド生成器に反復入力と型付きリクエスト変換を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/106
+- Disk API の create/update にフラグ入力を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/110
+- Server 作成時の NoWait と BootAfterCreate を早期検証 by @tokuhirom in https://github.com/sacloud/skr/pull/111
+- Server update のヘルプを実際のフラグと JSON 専用項目に合わせる by @tokuhirom in https://github.com/sacloud/skr/pull/112
+- IaaS PacketFilter コマンド・ライブ E2E・チュートリアルを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/113
+- API コマンド検証を同一パッケージ内で直接呼び出す by @tokuhirom in https://github.com/sacloud/skr/pull/115
+- API コマンド初期化を constructor に統一 by @tokuhirom in https://github.com/sacloud/skr/pull/116
+- IaaS のゾーン検証を共通化し、本文検証を SDK／API に委ねる by @tokuhirom in https://github.com/sacloud/skr/pull/117
+- Internet API とルータ経由の SSH E2E・チュートリアルを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/118
+- feat: IaaS Icon API コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/119
+- Networking Suite API コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/120
+### 📦 Dependency Updates
+- ci: bump Songmu/tagpr from 1.21.1 to 1.21.2 by @dependabot[bot] in https://github.com/sacloud/skr/pull/109
+- go: bump golang.org/x/term from 0.46.0 to 0.47.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/108
+- ci: bump goreleaser/goreleaser-action from 7.2.3 to 7.3.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/122
+- go: bump github.com/sacloud/sacloud-sdk-go from 0.3.0 to 0.3.1 by @dependabot[bot] in https://github.com/sacloud/skr/pull/121
+
+## [v0.0.2](https://github.com/sacloud/skr/compare/v0.0.1...v0.0.2) - 2026-10-14
+
+### 🚀 Changes
+- build: Docker ビルドを簡素化し実行用を Distroless に変更 by @tokuhirom in https://github.com/sacloud/skr/pull/46
+- feat: add IaaS Disk API commands by @tokuhirom in https://github.com/sacloud/skr/pull/53
+- docs: require live E2E and tutorials for IaaS commands by @tokuhirom in https://github.com/sacloud/skr/pull/54
+- feat: add version command by @tokuhirom in https://github.com/sacloud/skr/pull/55
+- Add jq query filtering and IaaS zone listing by @tokuhirom in https://github.com/sacloud/skr/pull/57
+- fix: make default checks work for module layout by @tokuhirom in https://github.com/sacloud/skr/pull/56
+- Add AppRun Dedicated API commands by @tokuhirom in https://github.com/sacloud/skr/pull/58
+- Add config profile list and show commands by @tokuhirom in https://github.com/sacloud/skr/pull/63
+- Remove YAML API output by @tokuhirom in https://github.com/sacloud/skr/pull/64
+- Add service principal authentication profile management by @tokuhirom in https://github.com/sacloud/skr/pull/65
+- config use コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/66
+- table 出力を廃止し JSON と --query に統一する by @tokuhirom in https://github.com/sacloud/skr/pull/67
+- IAM API の中核3リソースを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/69
+- IaaS の全ゾーン検索を廃止する by @tokuhirom in https://github.com/sacloud/skr/pull/68
+- E2E 実行レポートを Markdown で生成 by @tokuhirom in https://github.com/sacloud/skr/pull/71
+- Potential fix for code scanning alert no. 6: Workflow does not contain permissions by @tokuhirom in https://github.com/sacloud/skr/pull/72
+- Add remaining IAM API commands by @tokuhirom in https://github.com/sacloud/skr/pull/70
+- Set identifiable User-Agent headers by @tokuhirom in https://github.com/sacloud/skr/pull/74
+- Document command argument guidelines by @tokuhirom in https://github.com/sacloud/skr/pull/76
+- docs: API コマンド対応計画を更新 by @tokuhirom in https://github.com/sacloud/skr/pull/77
+- Container Registry API コマンドとライブ E2E を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/78
+- Show help for incomplete commands by @tokuhirom in https://github.com/sacloud/skr/pull/79
+- Add --tags flags to IaaS API commands by @tokuhirom in https://github.com/sacloud/skr/pull/80
+- Simplify README authentication and output sections by @tokuhirom in https://github.com/sacloud/skr/pull/81
+- AGENTS.md にレビュー指摘の再発防止方針を追加する by @tokuhirom in https://github.com/sacloud/skr/pull/94
+- 重複する ADR 番号を整理する by @tokuhirom in https://github.com/sacloud/skr/pull/96
+- PLAN.md に Disk / Server / Switch / Zone の対応状況を反映 by @tokuhirom in https://github.com/sacloud/skr/pull/97
+- Switch のリクエスト検証に単体テストを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/98
+- EventBus と AppRun Dedicated の入力処理・エラー経路に単体テストを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/99
+- README の日本語説明と Disk チュートリアルのタグ指定を整える by @tokuhirom in https://github.com/sacloud/skr/pull/100
+- Server の cloud-init 起動と SSH 接続チュートリアルを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/103
+- IaaS Archive / DiskPlan の検索・参照コマンドを追加 by @tokuhirom in https://github.com/sacloud/skr/pull/105
+### 📦 Dependency Updates
+- ci: bump actions/deploy-pages from 4.0.5 to 5.0.1 by @dependabot[bot] in https://github.com/sacloud/skr/pull/62
+- ci: bump actions/configure-pages from 5.0.0 to 6.0.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/61
+- ci: bump actions/upload-pages-artifact from 4.0.0 to 5.0.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/60
+- go: bump github.com/sacloud/sakumock from 0.12.0 to 0.13.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/95
+
+## [v0.0.1](https://github.com/sacloud/skr/commits/v0.0.1) - 2026-10-06
+
+### 🚀 Changes
+- Add EventBus API commands and tutorial by @tokuhirom in https://github.com/sacloud/skr/pull/9
+- docs: record project architecture decisions by @tokuhirom in https://github.com/sacloud/skr/pull/13
+- docs: write skill files in Japanese by @tokuhirom in https://github.com/sacloud/skr/pull/14
+- docs: clarify Japanese writing and text lint rules by @tokuhirom in https://github.com/sacloud/skr/pull/15
+- docs: define CLI command architecture by @tokuhirom in https://github.com/sacloud/skr/pull/18
+- Add IaaS Switch API commands and tutorial by @tokuhirom in https://github.com/sacloud/skr/pull/19
+- Add all-zone IaaS search support by @tokuhirom in https://github.com/sacloud/skr/pull/20
+- Support configurable JSON, YAML, and table output by @tokuhirom in https://github.com/sacloud/skr/pull/21
+- Add SimpleMQ API commands and E2E by @tokuhirom in https://github.com/sacloud/skr/pull/22
+- Clarify first-party documentation voice by @tokuhirom in https://github.com/sacloud/skr/pull/23
+- Remove CLI help from tutorial references by @tokuhirom in https://github.com/sacloud/skr/pull/24
+- Add EventBus SimpleMQ live E2E tutorial by @tokuhirom in https://github.com/sacloud/skr/pull/25
+- README を現状に合わせて整理 by @tokuhirom in https://github.com/sacloud/skr/pull/26
+- CI: push-triggered tests only on main by @tokuhirom in https://github.com/sacloud/skr/pull/27
+- Unify E2E evidence and document table output by @tokuhirom in https://github.com/sacloud/skr/pull/28
+- docs: organize user manuals under docs/manual by @tokuhirom in https://github.com/sacloud/skr/pull/29
+- ci: categorize release notes by @tokuhirom in https://github.com/sacloud/skr/pull/30
+- feat: add IaaS API command generator by @tokuhirom in https://github.com/sacloud/skr/pull/33
+- sacloud-sdk-go API対応計画を追加 by @tokuhirom in https://github.com/sacloud/skr/pull/34
+- GitHub Pages artifact でドキュメントを公開 by @tokuhirom in https://github.com/sacloud/skr/pull/35
+- Add IaaS Server API commands by @tokuhirom in https://github.com/sacloud/skr/pull/36
+- Add shared Ogen API generator and migrate SimpleMQ by @tokuhirom in https://github.com/sacloud/skr/pull/38
+- Add expand/collapse controls to command help by @tokuhirom in https://github.com/sacloud/skr/pull/37
+- Add authenticated HTTP request command by @tokuhirom in https://github.com/sacloud/skr/pull/39
+- Add -H short option for skr http --header by @tokuhirom in https://github.com/sacloud/skr/pull/40
+- feat: generate EventBus API commands by @tokuhirom in https://github.com/sacloud/skr/pull/41
+- Add global SDK HTTP tracing option by @tokuhirom in https://github.com/sacloud/skr/pull/42
+- Move CLI package under cmd/skr and internal/cli by @tokuhirom in https://github.com/sacloud/skr/pull/43
+- Update Docker Go image to 1.27.1 by @tokuhirom in https://github.com/sacloud/skr/pull/44
+- ci: tagpr を起点にバイナリとコンテナイメージをリリース by @tokuhirom in https://github.com/sacloud/skr/pull/45
+### 📦 Dependency Updates
+- docker: bump golang from 1.26.1 to 1.27.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/4
+- ci: bump docker/login-action from 3.7.0 to 4.6.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/8
+- docker: bump alpine from 3.23.3 to 3.24.2 by @dependabot[bot] in https://github.com/sacloud/skr/pull/6
+- ci: bump docker/setup-qemu-action from 3.7.0 to 4.4.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/7
+- ci: bump docker/metadata-action from 5.10.0 to 6.2.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/5
+- ci: bump actions/setup-go from 6.2.0 to 7.0.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/3
+- ci: bump actions/checkout from 6.0.2 to 7.0.1 by @dependabot[bot] in https://github.com/sacloud/skr/pull/2
+- ci: bump Songmu/tagpr from 1.9.0 to 1.21.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/10
+- ci: bump docker/build-push-action from 6.18.0 to 7.4.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/11
+- ci: bump docker/setup-buildx-action from 3.12.0 to 4.4.1 by @dependabot[bot] in https://github.com/sacloud/skr/pull/12
+- go: bump google.golang.org/grpc from 1.82.1 to 1.83.2 by @dependabot[bot] in https://github.com/sacloud/skr/pull/16
+- go: Bump go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp from 1.44.0 to 1.45.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/17
+- go: bump github.com/sacloud/sakumock from 0.9.1 to 0.12.0 by @dependabot[bot] in https://github.com/sacloud/skr/pull/32
+- ci: bump Songmu/tagpr from 1.21.0 to 1.21.1 by @dependabot[bot] in https://github.com/sacloud/skr/pull/31

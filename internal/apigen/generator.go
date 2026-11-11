@@ -1,0 +1,879 @@
+// Copyright 2022-2026 The sacloud/skr Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package apigen
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"go/format"
+	"go/parser"
+	"go/token"
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+	"text/template"
+)
+
+// Mode は生成器の種別を表します。生成型名の導出規則が IaaS と Ogen 系 API で異なります (ADR 0067)。
+type Mode int
+
+const (
+	// ModeIaaS は IaaS API 生成器のモードです。固定名 Commands / API / APIFactory / Runtime と、
+	// 操作ごとの <操作名>Command を導出します。command_prefix は設定できません。
+	ModeIaaS Mode = iota
+	// ModeOgen は Ogen 系 API 生成器のモードです。設定の command_prefix から
+	// <接頭辞>Commands などの型名と、操作ごとの <接頭辞><操作名>Command を導出します。
+	ModeOgen
+)
+
+type Config struct {
+	Package          string            `json:"package"`
+	Resource         string            `json:"resource"`
+	CommandPrefix    string            `json:"command_prefix,omitempty"`
+	Imports          map[string]string `json:"imports"`
+	FactoryArguments []Argument        `json:"factory_arguments,omitempty"`
+	Operations       []Operation       `json:"operations"`
+
+	// WiringTarget は internal/cli 配下の配線の代入先を表します (例: "IaaSAPI.Archive")。指定はドット区切りの
+	// エクスポート済み識別子です。wiring に handwritten を指定した設定では使えません。
+	WiringTarget string `json:"wiring_target,omitempty"`
+	// SDKFactory は API クライアントを生成する式です (例: "archive.New")。限定子はコマンド package、
+	// 設定の imports、mode 固有の共有 package の順に解決します。client_factory を指定した場合は client を、
+	// 未指定の場合は c.Trace を引数に呼び出します。
+	SDKFactory string `json:"sdk_factory,omitempty"`
+	// ClientFactory は共有クライアントを生成する式です (IaaS: "iaasclient.New")。指定すると 2 段階の
+	// factory クロージャを生成します。
+	ClientFactory string `json:"client_factory,omitempty"`
+	// Decoder は Runtime の DecodeRequest に接続する式です (例: "eventbusapi.DecodeRequest")。
+	// 省略時は internal/cli の共有入力処理 (decodeRequest) を接続します。
+	Decoder string `json:"decoder,omitempty"`
+	// Wiring は配線対象から外す設定を明示します (例: "handwritten")。指定した設定は配線生成から除外され、
+	// internal/cli の手書き init が接続を担当します。
+	Wiring string `json:"wiring,omitempty"`
+}
+
+type Operation struct {
+	Name             string `json:"name"`
+	CommandName      string `json:"command_name,omitempty"`
+	Help             string `json:"help"`
+	Method           string `json:"method"`
+	RequestType      string `json:"request_type,omitempty"`
+	RequestByValue   bool   `json:"request_by_value,omitempty"`
+	RequestOptional  bool   `json:"request_optional,omitempty"`
+	RequestFileOnly  bool   `json:"request_file_only,omitempty"`
+	ResponseType     string `json:"response_type,omitempty"`
+	RequestHelp      string `json:"request_help,omitempty"`
+	RequestValidator string `json:"request_validator,omitempty"`
+	ValidateZone     bool   `json:"validate_zone,omitempty"`
+	RequestTransform string `json:"request_transform,omitempty"`
+	// RequestInputTransform は --request の入力をデコード前に調整する手書き関数です。
+	// 入力は --request の値 (@path、-、インライン JSON) です。API のリクエスト型が
+	// Provider のような必須項目をデコード時に要求し、フラグの値から生 JSON に設定する
+	// 必要がある場合に使います。手書き操作でのみ指定できます。
+	RequestInputTransform string `json:"request_input_transform,omitempty"`
+	Handwritten           bool   `json:"handwritten,omitempty"`
+	// InterfaceExclude は API interface からこの操作を除外します。手書き操作が
+	// 種別ごとの SDK 操作に存在しないメソッド (eventbus の UpdateSecret など) で
+	// 使います。手書き操作でのみ指定できます。
+	InterfaceExclude bool           `json:"interface_exclude,omitempty"`
+	Arguments        []Argument     `json:"arguments,omitempty"`
+	Flags            []Flag         `json:"flags,omitempty"`
+	RepeatedFlags    []RepeatedFlag `json:"repeated_flags,omitempty"`
+}
+
+type RepeatedFlag struct {
+	Name  string `json:"name"`
+	Field string `json:"field"`
+	Help  string `json:"help"`
+}
+
+type Argument struct {
+	Name     string `json:"name"`
+	Field    string `json:"field"`
+	Type     string `json:"type"`
+	Help     string `json:"help"`
+	Flag     bool   `json:"flag,omitempty"`
+	Required bool   `json:"required,omitempty"`
+}
+
+type Flag struct {
+	Name       string `json:"name"`
+	Field      string `json:"field"`
+	Type       string `json:"type"`
+	Help       string `json:"help"`
+	Required   bool   `json:"required,omitempty"`
+	Pointer    bool   `json:"pointer,omitempty"`
+	Conversion string `json:"conversion,omitempty"`
+	Separator  string `json:"separator,omitempty"`
+	Singleton  bool   `json:"singleton,omitempty"`
+}
+
+type importSpec struct {
+	Alias string
+	Path  string
+}
+
+// resolvedOperation は操作ごとのコマンド型名を導出した結果を表します。
+type resolvedOperation struct {
+	Operation
+	CommandType string
+}
+
+// resolvedConfig は生成型名を導出した設定を表します。テンプレートは導出後の型名を参照します。
+type resolvedConfig struct {
+	Config
+	CommandsType string
+	APIType      string
+	FactoryType  string
+	RuntimeType  string
+	Operations   []resolvedOperation
+}
+
+// typeNames は mode に応じてトップレベルの生成型名を導出します。
+// IaaS は固定名、Ogen 系は設定の command_prefix から導出します。
+func (c Config) typeNames(mode Mode) (commands, api, factory, runtime string) {
+	if mode == ModeIaaS {
+		return "Commands", "API", "APIFactory", "Runtime"
+	}
+	return c.CommandPrefix + "Commands", c.CommandPrefix + "API", c.CommandPrefix + "APIFactory", c.CommandPrefix + "Runtime"
+}
+
+// commandTypeName は mode に応じて操作ごとのコマンド型名を導出します。
+// IaaS は <操作名>Command、Ogen 系は <接頭辞><操作名>Command です。
+func (c Config) commandTypeName(mode Mode, operationName string) string {
+	if mode == ModeIaaS {
+		return operationName + "Command"
+	}
+	return c.CommandPrefix + operationName + "Command"
+}
+
+// resolve は mode に応じて生成型名を導出します。呼び出し前に Validate を行うこと。
+func (c Config) resolve(mode Mode) resolvedConfig {
+	commandsType, apiType, factoryType, runtimeType := c.typeNames(mode)
+	operations := make([]resolvedOperation, 0, len(c.Operations))
+	for _, operation := range c.Operations {
+		operations = append(operations, resolvedOperation{
+			Operation:   operation,
+			CommandType: c.commandTypeName(mode, operation.Name),
+		})
+	}
+	return resolvedConfig{
+		Config:       c,
+		CommandsType: commandsType,
+		APIType:      apiType,
+		FactoryType:  factoryType,
+		RuntimeType:  runtimeType,
+		Operations:   operations,
+	}
+}
+
+type templateConfig struct {
+	resolvedConfig
+	Imports                []importSpec
+	FactoryParams          string
+	HasGeneratedOperations bool
+	HasTimeFlag            bool
+}
+
+const sourceTemplate = `// Code generated by internal/apigen; DO NOT EDIT.
+// API resource: {{.Resource}}.
+
+package {{.Package}}
+
+import (
+	"context"
+{{- if .HasGeneratedOperations }}
+	"fmt"
+{{- end }}
+{{- if .HasTimeFlag }}
+	"time"
+{{- end }}
+
+	"github.com/alecthomas/kong"
+{{- range .Imports }}
+	{{.Alias}} {{printf "%q" .Path}}
+{{- end }}
+)
+
+type {{.CommandsType}} struct {
+{{- range .Operations }}
+	{{.Name}} {{.CommandType}} {{commandTag .CommandName .Help}}
+{{- end }}
+}
+
+type {{.APIType}} interface {
+{{- range .Operations }}
+{{- if not .InterfaceExclude }}
+	{{.Method}}(context.Context{{range .Arguments}}, {{.Type}}{{end}}{{if .RequestType}}, {{if not .RequestByValue}}*{{end}}{{.RequestType}}{{end}}) {{if .ResponseType}}({{.ResponseType}}, error){{else}}error{{end}}
+{{- end }}
+{{- end }}
+}
+
+type {{.FactoryType}} func({{.FactoryParams}}) ({{.APIType}}, error)
+
+type {{.RuntimeType}} struct {
+	DecodeRequest func(string, any) error
+	ValidateOutput func(*kong.Context) error
+	WriteOutput func(*kong.Context, any) error
+{{- range .Operations }}
+{{- if .RequestTransform }}
+	{{.RequestTransform}} func(*{{.CommandType}}, *{{.RequestType}}) error
+{{- end }}
+{{- if .RequestInputTransform }}
+	{{.RequestInputTransform}} func(*{{.CommandType}}, string) (string, error)
+{{- end }}
+{{- end }}
+}
+
+func New{{.CommandsType}}(runtime {{.RuntimeType}}, factory {{.FactoryType}}) {{.CommandsType}} {
+	var commands {{.CommandsType}}
+{{- range .Operations }}
+	commands.{{.Name}}.runtime = runtime
+	commands.{{.Name}}.factory = factory
+{{- end }}
+	return commands
+}
+
+{{range .Operations}}
+{{- if not .Handwritten }}
+type {{.CommandType}} struct {
+{{- range $.FactoryArguments }}
+	{{.Field}} {{.Type}} {{argumentFlagTag .Name .Help .Required}}
+{{- end }}
+{{- range .Arguments }}
+{{- if .Flag }}
+	{{.Field}} {{.Type}} {{argumentFlagTag .Name .Help .Required}}
+{{- else }}
+	{{.Field}} {{.Type}} {{argumentTag .Name .Help}}
+{{- end }}
+{{- end }}
+{{- if .RequestType }}
+	Request *string {{if .RequestHelp}}{{helpTag .RequestHelp}}{{else}}{{helpTag "API リクエスト JSON を直接または @path.json で指定します。個別フラグと併用できません。"}}{{end}}
+{{- range .Flags }}
+	{{.Field}} *{{.Type}} {{flagTag .Name .Help .Separator}}
+{{- end }}
+{{- range .RepeatedFlags }}
+	{{.Field}} []string {{flagTag .Name .Help "none"}}
+{{- end }}
+{{- end }}
+	factory {{$.FactoryType}}
+	runtime {{$.RuntimeType}}
+}
+
+func (c *{{.CommandType}}) Run(ctx *kong.Context) error {
+{{- if .RequestType }}
+	flagsSet := false
+{{- range .Flags }}
+	flagsSet = flagsSet || c.{{.Field}} != nil
+{{- end }}
+{{- range .RepeatedFlags }}
+	flagsSet = flagsSet || len(c.{{.Field}}) != 0
+{{- end }}
+	if c.Request != nil && flagsSet {
+	return fmt.Errorf("--request と個別フラグは併用できません")
+	}
+	request := &{{.RequestType}}{}
+	if c.Request != nil {
+{{- if .RequestFileOnly }}
+		if *c.Request != "-" && (len(*c.Request) == 0 || (*c.Request)[0] != '@') {
+			return fmt.Errorf("--request には @path.json または -（標準入力）を指定してください")
+		}
+{{- end }}
+		if c.runtime.DecodeRequest == nil {
+			return fmt.Errorf("API リクエスト処理が設定されていません")
+		}
+{{- if .RequestInputTransform }}
+		if c.runtime.{{.RequestInputTransform}} == nil {
+			return fmt.Errorf("API リクエスト入力調整が設定されていません")
+		}
+		adjusted, err := c.runtime.{{.RequestInputTransform}}(c, *c.Request)
+		if err != nil {
+			return err
+		}
+		if err := c.runtime.DecodeRequest(adjusted, request); err != nil {
+			return err
+		}
+{{- else }}
+		if err := c.runtime.DecodeRequest(*c.Request, request); err != nil {
+			return err
+		}
+{{- end }}
+	} else {
+{{- if or .Flags .RepeatedFlags }}
+		if !flagsSet {
+{{- if not .RequestOptional }}
+			return fmt.Errorf("--request または個別フラグが必要です")
+{{- end }}
+		}
+{{- else }}
+{{- if not .RequestOptional }}
+		return fmt.Errorf("--request が必要です")
+{{- end }}
+{{- end }}
+{{- range .Flags }}
+{{- if .Required }}
+		if c.{{.Field}} == nil {
+			return fmt.Errorf("--{{.Name}} が必要です")
+		}
+{{- end }}
+		if c.{{.Field}} != nil {
+{{- if .Singleton }}
+			request.{{.Field}} = []string{*c.{{.Field}}}
+{{- else if .Conversion }}
+			value := {{.Conversion}}(*c.{{.Field}})
+{{- if .Pointer }}
+			request.{{.Field}} = &value
+{{- else }}
+			request.{{.Field}} = value
+{{- end }}
+{{- else if .Pointer }}
+			request.{{.Field}} = c.{{.Field}}
+{{- else }}
+			request.{{.Field}} = *c.{{.Field}}
+{{- end }}
+		}
+{{- end }}
+{{- if .RequestTransform }}
+		if c.runtime.{{.RequestTransform}} == nil {
+			return fmt.Errorf("API リクエスト入力変換が設定されていません")
+		}
+		if err := c.runtime.{{.RequestTransform}}(c, request); err != nil {
+			return err
+		}
+{{- end }}
+	}
+{{- if .ValidateZone }}
+	if err := zones.ValidateSingleZone(request.Zone); err != nil {
+		return err
+	}
+{{- end }}
+{{- if .RequestValidator }}
+	if err := {{.RequestValidator}}(request); err != nil {
+		return err
+	}
+{{- end }}
+{{- end }}
+{{- if .ResponseType }}
+	if c.runtime.ValidateOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	if err := c.runtime.ValidateOutput(ctx); err != nil {
+	return err
+	}
+{{- end }}
+	if c.factory == nil {
+	return fmt.Errorf("API クライアントが設定されていません")
+	}
+	op, err := c.factory({{range $.FactoryArguments}}c.{{.Field}}, {{end}})
+	if err != nil {
+	return err
+	}
+{{- if .ResponseType }}
+{{- if .RequestType }}
+	result, err := op.{{.Method}}(context.Background(){{range .Arguments}}, c.{{.Field}}{{end}}, {{if .RequestByValue}}*request{{else}}request{{end}})
+{{- else }}
+	result, err := op.{{.Method}}(context.Background(){{range .Arguments}}, c.{{.Field}}{{end}})
+{{- end }}
+	if err != nil {
+		return err
+	}
+	if c.runtime.WriteOutput == nil {
+		return fmt.Errorf("API 出力処理が設定されていません")
+	}
+	return c.runtime.WriteOutput(ctx, result)
+{{- else }}
+{{- if .RequestType }}
+	return op.{{.Method}}(context.Background(){{range .Arguments}}, c.{{.Field}}{{end}}, {{if .RequestByValue}}*request{{else}}request{{end}})
+{{- else }}
+	return op.{{.Method}}(context.Background(){{range .Arguments}}, c.{{.Field}}{{end}})
+{{- end }}
+{{- end }}
+}
+{{- end }}
+{{end}}`
+
+func DecodeConfig(data []byte, mode Mode) (Config, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var config Config
+	if err := decoder.Decode(&config); err != nil {
+		return Config{}, fmt.Errorf("decode generator config: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Config{}, fmt.Errorf("decode generator config: multiple JSON values")
+		}
+		return Config{}, fmt.Errorf("decode generator config: trailing data: %w", err)
+	}
+	if err := config.Validate(mode); err != nil {
+		return Config{}, err
+	}
+	return config, nil
+}
+
+func (c Config) Validate(mode Mode) error {
+	if !token.IsIdentifier(c.Package) || token.Lookup(c.Package).IsKeyword() {
+		return fmt.Errorf("package must be a valid Go identifier")
+	}
+	// 接頭辞は mode に応じて扱いが変わります。IaaS は固定名のため設定できず、
+	// Ogen 系はドメイン package 内の識別子として必須です。
+	switch mode {
+	case ModeIaaS:
+		if c.CommandPrefix != "" {
+			return fmt.Errorf("command_prefix is not supported for IaaS API generator configs")
+		}
+	case ModeOgen:
+		if c.CommandPrefix == "" {
+			return fmt.Errorf("command_prefix is required for Ogen API generator configs")
+		}
+		if !token.IsIdentifier(c.CommandPrefix) || !token.IsExported(c.CommandPrefix) {
+			return fmt.Errorf("command_prefix must be an exported Go identifier")
+		}
+	default:
+		return fmt.Errorf("unknown generator mode: %d", int(mode))
+	}
+	if err := c.validateWiring(mode); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.Resource) == "" {
+		return fmt.Errorf("resource must not be empty")
+	}
+	if len(c.Operations) == 0 {
+		return fmt.Errorf("at least one operation is required")
+	}
+
+	aliases := map[string]bool{"context": true, "fmt": true, "kong": true}
+	for _, operation := range c.Operations {
+		if operation.ValidateZone {
+			aliases["zones"] = true
+		}
+	}
+	for alias, path := range c.Imports {
+		if !token.IsIdentifier(alias) || token.Lookup(alias).IsKeyword() || aliases[alias] {
+			return fmt.Errorf("invalid or reserved import alias %q", alias)
+		}
+		if strings.TrimSpace(path) == "" {
+			return fmt.Errorf("import path for alias %q must not be empty", alias)
+		}
+		aliases[alias] = true
+	}
+
+	factoryArgumentNames := make(map[string]bool, len(c.FactoryArguments))
+	factoryArgumentFields := make(map[string]bool, len(c.FactoryArguments))
+	for _, argument := range c.FactoryArguments {
+		if !isKebabName(argument.Name) {
+			return fmt.Errorf("factory argument name %q must be kebab-case", argument.Name)
+		}
+		if !token.IsIdentifier(argument.Field) || token.Lookup(argument.Field).IsKeyword() {
+			return fmt.Errorf("factory argument field %q must be a valid Go identifier", argument.Field)
+		}
+		if factoryArgumentNames[argument.Name] || factoryArgumentFields[argument.Field] {
+			return fmt.Errorf("duplicate factory argument name or field")
+		}
+		if argument.Type == "" {
+			return fmt.Errorf("factory argument %q type must not be empty", argument.Name)
+		}
+		if err := validateType(argument.Type); err != nil {
+			return fmt.Errorf("factory argument %q type: %w", argument.Name, err)
+		}
+		if strings.TrimSpace(argument.Help) == "" {
+			return fmt.Errorf("factory argument %q help must not be empty", argument.Name)
+		}
+		factoryArgumentNames[argument.Name] = true
+		factoryArgumentFields[argument.Field] = true
+	}
+
+	operations := make(map[string]bool, len(c.Operations))
+	methods := make(map[string]bool, len(c.Operations))
+	commandNames := make(map[string]bool, len(c.Operations))
+	commandNamesSet := 0
+	commandsType, apiType, factoryType, runtimeType := c.typeNames(mode)
+	commandTypes := make(map[string]bool)
+	for _, name := range []string{commandsType, apiType, factoryType, runtimeType} {
+		if commandTypes[name] {
+			return fmt.Errorf("duplicate generated type name %q", name)
+		}
+		commandTypes[name] = true
+	}
+	runtimeFields := map[string]bool{"DecodeRequest": true, "ValidateOutput": true, "WriteOutput": true}
+	requestValidatorReservedNames := map[string]bool{
+		"c": true, "ctx": true, "flagsSet": true, "request": true,
+	}
+	requestValidators := make(map[string]string)
+	for i, operation := range c.Operations {
+		if !token.IsIdentifier(operation.Name) || token.Lookup(operation.Name).IsKeyword() {
+			return fmt.Errorf("operation %d name must be a valid Go identifier", i)
+		}
+		if operation.CommandName != "" {
+			if !isKebabName(operation.CommandName) {
+				return fmt.Errorf("operation %q command_name must be kebab-case", operation.Name)
+			}
+			if commandNames[operation.CommandName] {
+				return fmt.Errorf("duplicate command name %q", operation.CommandName)
+			}
+			commandNames[operation.CommandName] = true
+			commandNamesSet++
+		}
+		operationType := c.commandTypeName(mode, operation.Name)
+		if operations[operation.Name] {
+			return fmt.Errorf("duplicate operation name %q", operation.Name)
+		}
+		if commandTypes[operationType] {
+			return fmt.Errorf("duplicate generated type name %q", operationType)
+		}
+		if !token.IsIdentifier(operation.Method) || token.Lookup(operation.Method).IsKeyword() {
+			return fmt.Errorf("operation %q method must be a valid Go identifier", operation.Name)
+		}
+		if methods[operation.Method] {
+			return fmt.Errorf("duplicate SDK method %q", operation.Method)
+		}
+		if strings.TrimSpace(operation.Help) == "" {
+			return fmt.Errorf("operation %q help must not be empty", operation.Name)
+		}
+		if err := validateType(operation.RequestType); err != nil {
+			return fmt.Errorf("operation %q request_type: %w", operation.Name, err)
+		}
+		if operation.RequestByValue && operation.RequestType == "" {
+			return fmt.Errorf("operation %q request_by_value requires request_type", operation.Name)
+		}
+		if operation.RequestOptional && operation.RequestType == "" {
+			return fmt.Errorf("operation %q request_optional requires request_type", operation.Name)
+		}
+		if operation.RequestFileOnly && operation.RequestType == "" {
+			return fmt.Errorf("operation %q request_file_only requires request_type", operation.Name)
+		}
+		if operation.RequestFileOnly && (operation.RequestOptional || operation.Handwritten ||
+			len(operation.Flags) > 0 || len(operation.RepeatedFlags) > 0) {
+			return fmt.Errorf("operation %q request_file_only cannot be combined with request_optional, handwritten, flags, or repeated_flags", operation.Name)
+		}
+		if operation.ValidateZone && (operation.RequestType == "" || operation.Handwritten) {
+			return fmt.Errorf("operation %q validate_zone requires a generated request operation", operation.Name)
+		}
+		// interface_exclude は、手書き操作が SDK 操作ごとに存在しない場合 (eventbus の
+		// UpdateSecret など) に API interface への組み込みを避けるために使います。
+		if operation.InterfaceExclude && !operation.Handwritten {
+			return fmt.Errorf("operation %q interface_exclude requires handwritten", operation.Name)
+		}
+		if err := validateType(operation.ResponseType); err != nil {
+			return fmt.Errorf("operation %q response_type: %w", operation.Name, err)
+		}
+		if operation.RequestValidator != "" &&
+			(!token.IsIdentifier(operation.RequestValidator) || token.Lookup(operation.RequestValidator).IsKeyword()) {
+			return fmt.Errorf("operation %q request_validator must be a valid Go identifier", operation.Name)
+		}
+		if operation.RequestValidator != "" && operation.RequestType == "" {
+			return fmt.Errorf("operation %q request_validator requires a request_type", operation.Name)
+		}
+		if operation.RequestValidator != "" {
+			if requestValidatorReservedNames[operation.RequestValidator] {
+				return fmt.Errorf("request_validator %q conflicts with a generated local name", operation.RequestValidator)
+			}
+			if aliases[operation.RequestValidator] {
+				return fmt.Errorf("request_validator %q conflicts with an import alias", operation.RequestValidator)
+			}
+			if requestType, exists := requestValidators[operation.RequestValidator]; exists && requestType != operation.RequestType {
+				return fmt.Errorf("request_validator %q is used with multiple request types", operation.RequestValidator)
+			}
+			requestValidators[operation.RequestValidator] = operation.RequestType
+		}
+		if operation.RequestTransform != "" {
+			if !token.IsIdentifier(operation.RequestTransform) || !token.IsExported(operation.RequestTransform) {
+				return fmt.Errorf("operation %q request_transform must be an exported Go identifier", operation.Name)
+			}
+			if operation.RequestType == "" || operation.Handwritten {
+				return fmt.Errorf("operation %q request_transform requires a generated request operation", operation.Name)
+			}
+			if runtimeFields[operation.RequestTransform] {
+				return fmt.Errorf("duplicate runtime field name %q", operation.RequestTransform)
+			}
+			runtimeFields[operation.RequestTransform] = true
+		}
+		// request_input_transform はデコード前に --request の生 JSON を調整する手書き関数です。
+		// 手書き操作はリクエスト処理を自身で実装するため対象外です。
+		if operation.RequestInputTransform != "" {
+			if !token.IsIdentifier(operation.RequestInputTransform) || !token.IsExported(operation.RequestInputTransform) {
+				return fmt.Errorf("operation %q request_input_transform must be an exported Go identifier", operation.Name)
+			}
+			if operation.RequestType == "" || operation.Handwritten {
+				return fmt.Errorf("operation %q request_input_transform requires a generated request operation", operation.Name)
+			}
+			if runtimeFields[operation.RequestInputTransform] {
+				return fmt.Errorf("duplicate runtime field name %q", operation.RequestInputTransform)
+			}
+			runtimeFields[operation.RequestInputTransform] = true
+		}
+		if len(operation.RepeatedFlags) > 0 && operation.RequestTransform == "" {
+			return fmt.Errorf("operation %q repeated_flags requires request_transform", operation.Name)
+		}
+		if operation.RequestType == "" && len(operation.Flags) > 0 {
+			return fmt.Errorf("operation %q cannot define flags without request_type", operation.Name)
+		}
+		if operation.Handwritten && len(operation.Flags) > 0 {
+			return fmt.Errorf("handwritten operation %q cannot define generated flags", operation.Name)
+		}
+		argumentNames := make(map[string]bool, len(operation.Arguments))
+		cliNames := make(map[string]bool, len(operation.Arguments)+len(operation.Flags))
+		fields := map[string]bool{"factory": true, "runtime": true}
+		for _, argument := range c.FactoryArguments {
+			cliNames[argument.Name] = true
+			fields[argument.Field] = true
+		}
+		if operation.RequestType != "" {
+			fields["Request"] = true
+			cliNames["request"] = true
+		}
+		for _, argument := range operation.Arguments {
+			if !isKebabName(argument.Name) {
+				return fmt.Errorf("operation %q argument name %q must be kebab-case", operation.Name, argument.Name)
+			}
+			if !token.IsIdentifier(argument.Field) || token.Lookup(argument.Field).IsKeyword() {
+				return fmt.Errorf("operation %q argument field %q must be a valid Go identifier", operation.Name, argument.Field)
+			}
+			if argumentNames[argument.Name] || fields[argument.Field] || cliNames[argument.Name] {
+				return fmt.Errorf("operation %q has duplicate argument name or field", operation.Name)
+			}
+			if argument.Type == "" {
+				return fmt.Errorf("operation %q argument %q type must not be empty", operation.Name, argument.Name)
+			}
+			if err := validateType(argument.Type); err != nil {
+				return fmt.Errorf("operation %q argument %q type: %w", operation.Name, argument.Name, err)
+			}
+			if strings.TrimSpace(argument.Help) == "" {
+				return fmt.Errorf("operation %q argument %q help must not be empty", operation.Name, argument.Name)
+			}
+			argumentNames[argument.Name] = true
+			cliNames[argument.Name] = true
+			fields[argument.Field] = true
+		}
+		flagNames := make(map[string]bool, len(operation.Flags))
+		for _, flag := range operation.Flags {
+			if !isKebabName(flag.Name) {
+				return fmt.Errorf("operation %q flag name %q must be kebab-case", operation.Name, flag.Name)
+			}
+			if !token.IsIdentifier(flag.Field) || token.Lookup(flag.Field).IsKeyword() {
+				return fmt.Errorf("operation %q flag field %q must be a valid Go identifier", operation.Name, flag.Field)
+			}
+			if flagNames[flag.Name] || fields[flag.Field] || cliNames[flag.Name] {
+				return fmt.Errorf("operation %q has duplicate flag name or field", operation.Name)
+			}
+			flagNames[flag.Name] = true
+			cliNames[flag.Name] = true
+			fields[flag.Field] = true
+			switch flag.Type {
+			case "string", "bool", "int", "int64", "time.Time", "[]string":
+			default:
+				return fmt.Errorf("operation %q flag %q has unsupported type %q", operation.Name, flag.Name, flag.Type)
+			}
+			if flag.Type == "[]string" && (flag.Name != "tags" || flag.Field != "Tags" || flag.Separator != ",") {
+				return fmt.Errorf("operation %q flag %q: []string is supported only for the tags flag mapped to Tags with separator %q", operation.Name, flag.Name, ",")
+			}
+			if flag.Separator != "" && flag.Type != "[]string" {
+				return fmt.Errorf("operation %q flag %q separator requires []string type", operation.Name, flag.Name)
+			}
+			if flag.Singleton && (operation.Name != "Find" || flag.Name != "name" || flag.Field != "Names" ||
+				flag.Type != "string" || flag.Pointer || flag.Conversion != "" || flag.Separator != "") {
+				return fmt.Errorf("operation %q flag %q: singleton supports only a string name flag mapped to Find Names without pointer, conversion, or separator", operation.Name, flag.Name)
+			}
+			if strings.TrimSpace(flag.Help) == "" {
+				return fmt.Errorf("operation %q flag %q help must not be empty", operation.Name, flag.Name)
+			}
+			if err := validateType(flag.Conversion); err != nil {
+				return fmt.Errorf("operation %q flag %q conversion: %w", operation.Name, flag.Name, err)
+			}
+			if flag.Conversion != "" && flag.Pointer && strings.HasPrefix(flag.Conversion, "*") {
+				return fmt.Errorf("operation %q flag %q pointer conversion must name a value type", operation.Name, flag.Name)
+			}
+		}
+		for _, flag := range operation.RepeatedFlags {
+			if !isKebabName(flag.Name) {
+				return fmt.Errorf("operation %q repeated flag name %q must be kebab-case", operation.Name, flag.Name)
+			}
+			if !token.IsIdentifier(flag.Field) || token.Lookup(flag.Field).IsKeyword() || flag.Field == "Run" {
+				return fmt.Errorf("operation %q repeated flag field %q must be a valid Go field identifier", operation.Name, flag.Field)
+			}
+			if fields[flag.Field] || cliNames[flag.Name] {
+				return fmt.Errorf("operation %q has duplicate repeated flag name or field", operation.Name)
+			}
+			if strings.TrimSpace(flag.Help) == "" {
+				return fmt.Errorf("operation %q repeated flag %q help must not be empty", operation.Name, flag.Name)
+			}
+			fields[flag.Field] = true
+			cliNames[flag.Name] = true
+		}
+		operations[operation.Name] = true
+		methods[operation.Method] = true
+		commandTypes[operationType] = true
+	}
+	if commandNamesSet != 0 && commandNamesSet != len(c.Operations) {
+		return fmt.Errorf("command_name must be specified for every operation or none")
+	}
+	// 導出された生成型名全体がインポートエイリアスと衝突しないことを検証します
+	for name := range commandTypes {
+		if aliases[name] {
+			return fmt.Errorf("generated type %q conflicts with an import alias", name)
+		}
+	}
+	for name := range requestValidators {
+		if commandTypes[name] {
+			return fmt.Errorf("request_validator %q conflicts with a generated type name", name)
+		}
+		if runtimeFields[name] {
+			return fmt.Errorf("request_validator %q conflicts with a generated Runtime field", name)
+		}
+	}
+	constructorName := "New" + commandsType
+	if commandTypes[constructorName] {
+		return fmt.Errorf("generated constructor %q conflicts with a generated type name", constructorName)
+	}
+	if requestValidators[constructorName] != "" {
+		return fmt.Errorf("generated constructor %q conflicts with a request_validator", constructorName)
+	}
+	if aliases[constructorName] {
+		return fmt.Errorf("generated constructor %q conflicts with an import alias", constructorName)
+	}
+	return nil
+}
+
+func validateType(value string) error {
+	if value == "" {
+		return nil
+	}
+	if _, err := parser.ParseExpr(value); err != nil {
+		return fmt.Errorf("invalid Go type %q: %w", value, err)
+	}
+	return nil
+}
+
+func isKebabName(value string) bool {
+	if value == "" || strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") || strings.Contains(value, "--") {
+		return false
+	}
+	for _, r := range value {
+		if r != '-' && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func Generate(config Config, mode Mode) ([]byte, error) {
+	if err := config.Validate(mode); err != nil {
+		return nil, err
+	}
+	resolved := config.resolve(mode)
+	imports := make([]importSpec, 0, len(config.Imports))
+	for alias, path := range config.Imports {
+		imports = append(imports, importSpec{Alias: alias, Path: path})
+	}
+	for _, operation := range config.Operations {
+		if operation.ValidateZone {
+			imports = append(imports, importSpec{Alias: "zones", Path: "github.com/sacloud/skr/internal/iaas/zones"})
+			break
+		}
+	}
+	sort.Slice(imports, func(i, j int) bool { return imports[i].Alias < imports[j].Alias })
+	hasGeneratedOperations := false
+	for _, operation := range config.Operations {
+		if !operation.Handwritten {
+			hasGeneratedOperations = true
+		}
+	}
+	// time.Time フラグは Kong が RFC3339 でデコードするため、生成コードに標準ライブラリの time を含める
+	hasTimeFlag := false
+	for _, operation := range config.Operations {
+		for _, flag := range operation.Flags {
+			if flag.Type == "time.Time" {
+				hasTimeFlag = true
+				break
+			}
+		}
+	}
+	factoryParams := make([]string, 0, len(config.FactoryArguments))
+	for _, argument := range config.FactoryArguments {
+		factoryParams = append(factoryParams, argument.Field+" "+argument.Type)
+	}
+
+	tmpl, err := template.New("api").Funcs(template.FuncMap{
+		"commandTag": func(name, help string) string {
+			tag := "cmd:\"\""
+			if name != "" {
+				tag += " name:" + strconv.Quote(name)
+			}
+			tag += " help:" + strconv.Quote(help)
+			return strconv.Quote(tag)
+		},
+		"flagTag": func(name, help, separator string) string {
+			tag := "name:" + strconv.Quote(name) + " help:" + strconv.Quote(help)
+			if separator != "" {
+				tag += " sep:" + strconv.Quote(separator)
+			}
+			return strconv.Quote(tag)
+		},
+		"argumentTag": func(name, help string) string {
+			return strconv.Quote("arg:\"\" name:" + strconv.Quote(name) + " help:" + strconv.Quote(help))
+		},
+		"argumentFlagTag": func(name, help string, required bool) string {
+			tag := "name:" + strconv.Quote(name) + " help:" + strconv.Quote(help)
+			if required {
+				tag += " required:\"\""
+			}
+			return strconv.Quote(tag)
+		},
+		"helpTag": func(help string) string {
+			return strconv.Quote("help:" + strconv.Quote(help))
+		},
+	}).Parse(sourceTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("parse source template: %w", err)
+	}
+	var source bytes.Buffer
+	if err := tmpl.Execute(&source, templateConfig{
+		resolvedConfig:         resolved,
+		Imports:                imports,
+		FactoryParams:          strings.Join(factoryParams, ", "),
+		HasGeneratedOperations: hasGeneratedOperations,
+		HasTimeFlag:            hasTimeFlag,
+	}); err != nil {
+		return nil, fmt.Errorf("render source: %w", err)
+	}
+	formatted, err := format.Source(source.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("format generated source: %w", err)
+	}
+	return formatted, nil
+}
+
+func GenerateFile(configPath, outputPath string, mode Mode) error {
+	data, err := os.ReadFile(configPath) // #nosec G304 -- The config path is explicitly provided by the local CLI user.
+	if err != nil {
+		return fmt.Errorf("read config %q: %w", configPath, err)
+	}
+	config, err := DecodeConfig(data, mode)
+	if err != nil {
+		return err
+	}
+	source, err := Generate(config, mode)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(outputPath, source, 0o644); err != nil { // #nosec G306 G703 -- The local user selects the output path; generated Go source is non-sensitive and must remain readable.
+		return fmt.Errorf("write generated Go file %q: %w", outputPath, err)
+	}
+	return nil
+}
