@@ -153,8 +153,8 @@ github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0t
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
 github.com/rs/xid v1.6.0 h1:fV591PaemRlL6JfRxGDEPl69wICngIQ3shQtzfy2gxU=
 github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
-github.com/sacloud/sacloud-sdk-go v0.5.0 h1:KTk4BBMlH6S0bOJY7c4hEG9ZnN2zXtPaybYqlWUmRBM=
-github.com/sacloud/sacloud-sdk-go v0.5.0/go.mod h1:oHWGHv11HSqjUfYen5iLCkfAzObXcbVyBLSoohnL11o=
+github.com/sacloud/sacloud-sdk-go v0.6.0 h1:63YRziB/ihJZqda+8BLtCITQ/YCz4C214qPJypMFtGM=
+github.com/sacloud/sacloud-sdk-go v0.6.0/go.mod h1:oHWGHv11HSqjUfYen5iLCkfAzObXcbVyBLSoohnL11o=
 github.com/sacloud/sakumock v0.13.1-0.20261106064007-b549aa2fc6d3 h1:Ganp1sGRbgiVyEQSP4ntDCkpNTsKVtecUQsSbm3FIig=
 github.com/sacloud/sakumock v0.13.1-0.20261106064007-b549aa2fc6d3/go.mod h1:P1U24NoRlIeCh78M6xhxLuVkY0TTsq9DePEMzdvom9U=
 github.com/segmentio/asm v1.2.1 h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=

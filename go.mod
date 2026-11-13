@@ -8,7 +8,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.20
-	github.com/sacloud/sacloud-sdk-go v0.5.0
+	github.com/sacloud/sacloud-sdk-go v0.6.0
 	github.com/sacloud/sakumock v0.13.1-0.20261106064007-b549aa2fc6d3
 	github.com/stretchr/testify v1.12.1
 	github.com/yuin/goldmark v1.8.7
